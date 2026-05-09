@@ -27,6 +27,9 @@ test: ## Run unit tests
 run: ## Run the geocoding pipeline
 	uv run python src/main.py
 
+serve: ## Launch the FastAPI server
+	uv run uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
+
 clean: ## Clean up temporary files
 	rm -rf __pycache__ src/__pycache__ tests/__pycache__
 	rm -f geocoded.csv

@@ -1,29 +1,114 @@
-# gnafer
+# GNAFER: High-Performance Australian Geocoder
 
-High-performance local Australian geocoder using GNAF CORE, Qwen2.5 (Ollama), and PostgreSQL.
+GNAFER is a production-grade, local-first geocoding pipeline designed for high-precision Australian address resolution. It leverages the full **GNAF CORE** dataset (15.8M rows) combined with a hybrid **Two-Pass matching engine** (Regex + LLM) to achieve sub-unit accuracy at scale.
 
-## Quick Start
+---
 
-1. Copy `.env.example` to `.env` and fill in your details.
-2. Run `make setup` to install dependencies.
-3. Run `make start` to launch the database.
-4. Run `make db-init` to load GNAF data.
-5. Run `make db-status` to verify the ingestion.
-6. Run `make run` to process addresses.
+## 🚀 Key Features
 
-## Configuration
+- **Sub-Unit Precision**: Hierarchical matching logic that resolves down to Unit/Shop/Level (e.g., "Unit 5, Level 2...").
+- **Mesh Block (mb_code) Support**: Returns the ABS Mesh Block code for every successful match, enabling direct linkage to Census data.
+- **Two-Pass Hybrid Engine**:
+    - **Pass 1 (Regex Sprint)**: Instant, rule-based geocoding for 80%+ of standard addresses (~2,500 rows/sec).
+    - **Pass 2 (Async LLM Refinement)**: Concurrent AI refinement using `qwen2.5:1.5b` for complex or messy addresses.
+- **FastAPI Microservice**: Integrated REST API with single and background-batch endpoints.
+- **Cloud Observability**: Integrated "Recorder" pattern using **Logtail** for remote progress tracking.
+- **Type-Aware Matching**: Intelligent handling of 50+ Australian street types and abbreviations (e.g., "Pde", "Cct", "St").
 
-The project is configured via environment variables in the `.env` file:
+---
 
-- **OLLAMA_MODEL**: The model used for complex address parsing (default: `qwen2.5:latest`). You can switch to `deepseek-r1:7b` or others depending on your host setup.
-- **OLLAMA_HOST**: The address of your Ollama server (default: `http://localhost:11434`).
-- **DB_***: PostgreSQL connection details.
+## 🛠️ Tech Stack
 
-## Architecture
+- **Logic**: Python 3.12+ (FastAPI, Pydantic, Asyncio)
+- **Database**: PostgreSQL 16 + `pg_trgm` (Fuzzy Matching)
+- **AI/LLM**: Ollama (`qwen2.5:1.5b`)
+- **Package Manager**: `uv` (Deterministic dependencies)
+- **Containerization**: Docker & Docker Compose
 
-- **PostgreSQL 16**: Containerised database for GNAF CORE storage.
-- **Ollama**: Local LLM for complex address parsing (Host-based to leverage ROCm/CUDA).
-- **Waterfall Parser**: 
-    1. **Stage 1 (Regex)**: Fast, rule-based parsing for standard addresses.
-    2. **Stage 2 (LLM)**: High-fidelity fallback for ambiguous or messy addresses.
-- **uv**: Deterministic Python dependency management.
+---
+
+## 📦 Setup & Installation
+
+### 1. Prerequisites
+- Docker & Docker Compose
+- [Ollama](https://ollama.com/) (Running on the host for GPU acceleration)
+- Python 3.12+
+
+### 2. Infrastructure
+```bash
+# Install dependencies
+make setup
+
+# Start the PostgreSQL container
+make start
+
+# Pull the required LLM model
+ollama pull qwen2.5:1.5b
+```
+
+### 3. Data Ingestion
+Place your `GNAF_CORE.psv` file in the `data/` directory and run:
+```bash
+make db-init
+```
+*Note: This processes ~15.8 million rows. Use `make db-status` to monitor progress.*
+
+---
+
+## 🖥️ Usage
+
+### REST API (Recommended for Microservices)
+Launch the server:
+```bash
+make serve
+```
+
+#### Single Address Geocode
+**POST** `/geocode`
+```bash
+curl -X POST http://localhost:8000/geocode \
+     -H "Content-Type: application/json" \
+     -d '{"address": "42/7 Weston St, Rosehill 2142"}'
+```
+
+#### Batch Job (Background)
+**POST** `/geocode/batch`
+```bash
+curl -X POST http://localhost:8000/geocode/batch \
+     -H "Content-Type: application/json" \
+     -d '{"addresses": ["1 George St, Sydney", "497 New South Head Rd, Double Bay"]}'
+```
+*Returns a `job_id`. Monitor status via `GET /jobs/{job_id}`.*
+
+### CLI Batch Processing
+For large file-based workloads:
+```bash
+make run
+```
+*Processes `input.txt` and generates `geocoded.csv`.*
+
+---
+
+## 📊 Performance Benchmarks
+
+| Component | Speed | Optimization |
+| :--- | :--- | :--- |
+| **Database Match** | < 5ms / query | Indexed Hierarchical Search |
+| **Regex Pass** | ~2,500 addresses/sec | Rule-based Sprint |
+| **LLM Refinement** | ~1.1s / address | Async Concurrency (15x) |
+| **Total Pipeline** | **9x Faster** | Transitioned from 7B to 1.5B Model |
+
+---
+
+## 📋 Environment Configuration (`.env`)
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `DB_NAME` | PostgreSQL Database Name | `gnafer` |
+| `OLLAMA_MODEL` | AI Model for Refinement | `qwen2.5:1.5b` |
+| `LOGTAIL_TOKEN` | Remote Logging Token | (Optional) |
+
+---
+
+## 🛡️ License
+MIT License. Created for high-performance Australian spatial data workloads.
