@@ -21,7 +21,7 @@ DB_CONFIG = {
 }
 
 SCHEMA_FILE = Path("sql/schema.sql")
-GNAF_CSV = Path(os.getenv("GNAF_CSV_PATH", "data/GNAF_CORE.csv"))
+GNAF_PATH = Path(os.getenv("GNAF_CSV_PATH", "data/GNAF_CORE.csv"))
 
 def init_db(conn):
     """Create schema from SQL file."""
@@ -32,47 +32,85 @@ def init_db(conn):
     conn.commit()
     logger.info("Schema initialised.")
 
-def ingest_gnaf(conn, csv_path):
-    """Load GNAF CORE CSV into PostgreSQL."""
-    if not csv_path.exists():
-        logger.warning(f"GNAF CSV not found at {csv_path}. Skipping ingestion.")
+def ingest_gnaf(conn, file_path):
+    """Load GNAF CORE data into PostgreSQL."""
+    if not file_path.exists():
+        logger.warning(f"GNAF data file not found at {file_path}. Skipping ingestion.")
         return
 
-    logger.info(f"Reading {csv_path}...")
-    # Read CSV in chunks to handle large files (~15GB mentioned in plan)
-    # Note: For testing, we might want to limit this or use a sample
+    # Detect delimiter
+    ext = file_path.suffix.lower()
+    if ext == '.tsv':
+        delimiter = '\t'
+    elif ext == '.psv':
+        delimiter = '|'
+    else:
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            first_line = f.readline()
+            delimiter = '|' if '|' in first_line else ','
+    
+    logger.info(f"Reading {file_path} using delimiter '{delimiter}'...")
+    
     chunk_size = 50000
-    reader = pd.read_csv(csv_path, sep="|", chunksize=chunk_size, low_memory=False)
+    reader = pd.read_csv(file_path, sep=delimiter, chunksize=chunk_size, low_memory=False)
+
+    mapping = {
+        'ADDRESS_DETAIL_PID': 'address_detail_pid',
+        'DATE_CREATED': 'date_created',
+        'ADDRESS_LABEL': 'address_label',
+        'ADDRESS_SITE_NAME': 'address_site_name',
+        'BUILDING_NAME': 'building_name',
+        'FLAT_TYPE': 'flat_type',
+        'FLAT_NUMBER': 'flat_number',
+        'LEVEL_TYPE': 'level_type',
+        'LEVEL_NUMBER': 'level_number',
+        'NUMBER_FIRST': 'number_first',
+        'NUMBER_LAST': 'number_last',
+        'LOT_NUMBER': 'lot_number',
+        'STREET_NAME': 'street_name',
+        'STREET_TYPE': 'street_type',
+        'STREET_SUFFIX': 'street_suffix',
+        'LOCALITY_NAME': 'suburb_name',
+        'STATE': 'state',
+        'POSTCODE': 'postcode',
+        'LEGAL_PARCEL_ID': 'legal_parcel_id',
+        'MB_CODE': 'mb_code',
+        'ALIAS_PRINCIPAL': 'alias_principal',
+        'PRINCIPAL_PID': 'principal_pid',
+        'PRIMARY_SECONDARY': 'primary_secondary',
+        'PRIMARY_PID': 'primary_pid',
+        'GEOCODE_TYPE': 'geocode_type',
+        'LONGITUDE': 'longitude',
+        'LATITUDE': 'latitude'
+    }
 
     with conn.cursor() as cur:
         for i, chunk in enumerate(reader):
             logger.info(f"Processing chunk {i+1}...")
             
-            # Map CSV columns to DB columns
-            # Standard GNAF CORE headers are usually uppercase
-            mapping = {
-                'ADDRESS_DETAIL_PID': 'address_detail_pid',
-                'STREET_NAME': 'street_name',
-                'STREET_TYPE_CODE': 'street_type',
-                'SUBURB_NAME': 'suburb_name',
-                'STATE_ABBREVIATION': 'state',
-                'POSTCODE': 'postcode',
-                'LATITUDE': 'latitude',
-                'LONGITUDE': 'longitude',
-                'ADDRESS_LABEL': 'address_label'
-            }
+            chunk.columns = [c.upper().strip().lstrip('\ufeff') for c in chunk.columns]
             
-            # Filter and rename columns
-            data = chunk[list(mapping.keys())].rename(columns=mapping)
+            available_mapping = {src: target for src, target in mapping.items() if src in chunk.columns}
+            data = chunk[list(available_mapping.keys())].rename(columns=available_mapping)
             
-            # Convert to list of tuples for psycopg2
+            # Format Date Field
+            if 'date_created' in data.columns:
+                data['date_created'] = pd.to_datetime(data['date_created'], dayfirst=True, errors='coerce').dt.date
+
+            # Clean coordinates (must be numeric for SQL)
+            coord_cols = ['latitude', 'longitude']
+            for col in coord_cols:
+                if col in data.columns:
+                    data[col] = pd.to_numeric(data[col], errors='coerce')
+                    data[col] = data[col].where(pd.notnull(data[col]), None)
+
+            # Keep everything else as strings/objects to avoid range errors
             tuples = [tuple(x) for x in data.to_numpy()]
             
-            query = """
-                INSERT INTO gnaf_core (
-                    address_detail_pid, street_name, street_type, suburb_name, 
-                    state, postcode, latitude, longitude, address_label
-                ) VALUES %s
+            cols = list(data.columns)
+            query = f"""
+                INSERT INTO gnaf_core ({', '.join(cols)}) 
+                VALUES %s
                 ON CONFLICT (address_detail_pid) DO NOTHING
             """
             execute_values(cur, query, tuples)
@@ -84,7 +122,7 @@ def main():
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         init_db(conn)
-        ingest_gnaf(conn, GNAF_CSV)
+        ingest_gnaf(conn, GNAF_PATH)
         conn.close()
     except Exception as e:
         logger.error(f"Error during ingestion: {e}")

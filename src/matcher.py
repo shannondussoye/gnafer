@@ -1,10 +1,53 @@
 import os
 import psycopg2
-from typing import Optional, List
+from typing import Optional, Tuple
 from src.models import ParsedAddress, GeocodedResult
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Standard Australian Street Type Mappings
+STREET_TYPE_MAP = {
+    "ST": "STREET",
+    "RD": "ROAD",
+    "AVE": "AVENUE",
+    "CRT": "COURT",
+    "DR": "DRIVE",
+    "PL": "PLACE",
+    "LNE": "LANE",
+    "GR": "GROVE",
+    "HWY": "HIGHWAY",
+    "CL": "CLOSE",
+    "BVD": "BOULEVARD",
+    "BVDE": "BOULEVARDE",
+    "PKWY": "PARKWAY",
+    "TCE": "TERRACE",
+    "WAY": "WAY",
+    "PDE": "PARADE",
+    "CCT": "CIRCUIT",
+    "CRES": "CRESCENT",
+    "ESP": "ESPLANADE",
+    "SQ": "SQUARE",
+    "ARC": "ARCADE",
+    "MWS": "MEWS",
+    "CIRC": "CIRCLE",
+    "CDS": "CUL-DE-SAC",
+    "CTH": "CENTREWAY",
+    "LDG": "LANDING",
+    "LNWY": "LANEWAY",
+    "MTWY": "MOTORWAY",
+    "PROM": "PROMENADE",
+    "QY": "QUAY",
+    "QYS": "QUAYS",
+    "RTRT": "RETREAT",
+    "TWAY": "THROUGHWAY",
+    "WKW": "WALKWAY",
+    "WTRS": "WATERS",
+    "WTRW": "WATERWAY"
+}
+
+# Inverse map to find abbreviations from full types
+STREET_ABBR_MAP = {v: k for k, v in STREET_TYPE_MAP.items()}
 
 class AddressMatcher:
     def __init__(self):
@@ -16,66 +59,90 @@ class AddressMatcher:
             port=os.getenv("DB_PORT", "5432")
         )
 
+    def _get_clean_number(self, number: str) -> str:
+        if not number: return ""
+        return str(number).split('-')[0].split('/')[0].strip()
+
+    def _get_full_street_type(self, st_type: str) -> str:
+        if not st_type: return ""
+        u_type = st_type.upper().strip(".")
+        return STREET_TYPE_MAP.get(u_type, u_type)
+
     def match(self, parsed: ParsedAddress) -> Optional[GeocodedResult]:
-        """
-        Match a parsed address against the GNAF database.
-        Strategy:
-        1. Exact match on street, suburb, and postcode.
-        2. Trigram fallback for fuzzy street/suburb names.
-        """
         if not parsed or not (parsed.street or parsed.suburb):
             return None
 
-        with self.conn.cursor() as cur:
-            # Stage 1: Exact Match
-            query = """
-                SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude
-                FROM gnaf_core
-                WHERE street_name = %s 
-                  AND suburb_name = %s 
-                  AND (postcode = %s OR %s = '')
-                LIMIT 1
-            """
-            
-            cur.execute(query, (
-                parsed.street.upper() if parsed.street else "",
-                parsed.suburb.upper() if parsed.suburb else "",
-                parsed.postcode if parsed.postcode else "",
-                parsed.postcode if parsed.postcode else ""
-            ))
-            
-            row = cur.fetchone()
-            if row:
-                return self._to_result(parsed, row, 1.0, "EXACT")
+        raw_street = parsed.street.upper()
+        suburb_name = parsed.suburb.upper() if parsed.suburb else ""
+        street_type = self._get_full_street_type(parsed.street_type)
+        st_abbr = STREET_ABBR_MAP.get(street_type, "")
+        clean_number = self._get_clean_number(parsed.number)
 
-            # Stage 2: Fuzzy Match (Trigram Similarity)
-            fuzzy_query = """
+        with self.conn.cursor() as cur:
+            # Smart Name Variations
+            name_variations = [raw_street]
+            
+            # 1. Try stripping full type (e.g., "STATION STREET" -> "STATION")
+            if street_type and raw_street.endswith(f" {street_type}"):
+                name_variations.append(raw_street.replace(f" {street_type}", "").strip())
+            
+            # 2. Try stripping abbreviation (e.g., "STATION ST" -> "STATION")
+            if st_abbr and raw_street.endswith(f" {st_abbr}"):
+                name_variations.append(raw_street.replace(f" {st_abbr}", "").strip())
+
+            # 3. Try combining them (e.g., "STATION" + "STREET")
+            if street_type and street_type not in raw_street:
+                name_variations.append(f"{raw_street} {street_type}")
+
+            name_variations = list(set(v for v in name_variations if v))
+
+            for name_var in name_variations:
+                # Precision matching stages (Confidence 1.0)
+                if parsed.unit and clean_number:
+                    row = self._query(cur, """
+                        SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude
+                        FROM gnaf_core
+                        WHERE street_name = %s AND suburb_name = %s AND street_type = %s
+                          AND number_first = %s AND flat_number = %s
+                        LIMIT 1
+                    """, (name_var, suburb_name, street_type, clean_number, parsed.unit))
+                    if row: return self._to_result(parsed, row, 1.0, "PRECISION_UNIT")
+
+                if clean_number:
+                    row = self._query(cur, """
+                        SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude
+                        FROM gnaf_core
+                        WHERE street_name = %s AND suburb_name = %s AND street_type = %s
+                          AND number_first = %s
+                        LIMIT 1
+                    """, (name_var, suburb_name, street_type, clean_number))
+                    if row: return self._to_result(parsed, row, 1.0, "PRECISION_NUMBER")
+
+                row = self._query(cur, """
+                    SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude
+                    FROM gnaf_core
+                    WHERE street_name = %s AND suburb_name = %s AND street_type = %s
+                    LIMIT 1
+                """, (name_var, suburb_name, street_type))
+                if row: return self._to_result(parsed, row, 0.9, "STREET_CENTROID")
+
+            # Final Fallback: Fuzzy Match
+            row = self._query(cur, """
                 SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude,
                        (similarity(street_name, %s) + similarity(suburb_name, %s)) / 2 as score
                 FROM gnaf_core
-                WHERE street_name %% %s
-                  AND suburb_name %% %s
+                WHERE street_name %% %s AND suburb_name %% %s
                 ORDER BY score DESC
                 LIMIT 1
-            """
-            
-            try:
-                cur.execute(fuzzy_query, (
-                    parsed.street.upper() if parsed.street else "",
-                    parsed.suburb.upper() if parsed.suburb else "",
-                    parsed.street.upper() if parsed.street else "",
-                    parsed.suburb.upper() if parsed.suburb else ""
-                ))
-                
-                row = cur.fetchone()
-                if row:
-                    confidence = float(row[6])
-                    if confidence > 0.4: # Lowered threshold for test
-                        return self._to_result(parsed, row[:6], confidence, "FUZZY")
-            except Exception as e:
-                print(f"Fuzzy Match Error: {e}")
+            """, (raw_street, suburb_name, raw_street, suburb_name))
+            if row and row[6] > 0.4:
+                return self._to_result(parsed, row[:6], float(row[6]), "FUZZY_MATCH")
 
         return None
+
+    def _query(self, cur, sql: str, params: tuple) -> Optional[tuple]:
+        cur.execute(sql, params)
+        return cur.fetchone()
 
     def _to_result(self, parsed: ParsedAddress, row: tuple, confidence: float, match_type: str) -> GeocodedResult:
         pid, street, suburb, postcode, lat, lon = row
@@ -91,17 +158,3 @@ class AddressMatcher:
     def __del__(self):
         if hasattr(self, 'conn'):
             self.conn.close()
-
-if __name__ == "__main__":
-    # Test fuzzy matching
-    matcher = AddressMatcher()
-    
-    # Test typo: "GEORGR" instead of "GEORGE"
-    test_parsed = ParsedAddress(
-        street="GEORGR",
-        suburb="SYDNEY",
-        postcode="2000"
-    )
-    
-    result = matcher.match(test_parsed)
-    print(f"Fuzzy Match Result: {result}")
