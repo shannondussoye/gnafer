@@ -7,10 +7,10 @@ setup: ## Install dependencies using uv
 	uv sync
 
 start: ## Start the database container
-	docker-compose up -d
+	docker compose up -d
 
 stop: ## Stop the database container
-	docker-compose down
+	docker compose down
 
 db-init: ## Initialise the database schema and load GNAF data
 	uv run python src/ingest.py
