@@ -11,10 +11,10 @@ from src.models import GeocodedResult
 from src.observability import GeocoderObservability
 from dotenv import load_dotenv
 import logging
+import uuid
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("gnafer")
 
 load_dotenv()
 
@@ -32,19 +32,20 @@ async def check_ollama():
         return False
 
 async def main():
+    run_id = str(uuid.uuid4())
     matcher = AddressMatcher()
-    obs = GeocoderObservability()
+    obs = GeocoderObservability(run_id=run_id)
     
     if not os.path.exists(INPUT_FILE):
         logger.error(f"Input file {INPUT_FILE} not found.")
         return
 
-    # Check for LLM availability
-    llm_available = await check_ollama()
-    obs.log_progress("Starting geocoding process", {"total_addresses": 12, "llm_available": llm_available})
-
     with open(INPUT_FILE, "r") as f:
         addresses = [line.strip() for line in f if line.strip()]
+
+    # Check for LLM availability
+    llm_available = await check_ollama()
+    obs.log_progress("Starting geocoding process", {"total_addresses": len(addresses), "llm_available": llm_available})
 
     print(f"--- Starting Two-Pass Geocoding ({len(addresses)} addresses) ---")
     
