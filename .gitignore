@@ -11,8 +11,7 @@ build/
 *.egg-info/
 
 # GNAF Data
-data/*.csv
-!data/GNAF_CORE.csv # Keep sample for now, but exclude real 15GB file later
+data/
 
 # Local Geocoder Output
 geocoded.csv
