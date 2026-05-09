@@ -82,15 +82,12 @@ class AddressMatcher:
             # Smart Name Variations
             name_variations = [raw_street]
             
-            # 1. Try stripping full type (e.g., "STATION STREET" -> "STATION")
             if street_type and raw_street.endswith(f" {street_type}"):
                 name_variations.append(raw_street.replace(f" {street_type}", "").strip())
             
-            # 2. Try stripping abbreviation (e.g., "STATION ST" -> "STATION")
             if st_abbr and raw_street.endswith(f" {st_abbr}"):
                 name_variations.append(raw_street.replace(f" {st_abbr}", "").strip())
 
-            # 3. Try combining them (e.g., "STATION" + "STREET")
             if street_type and street_type not in raw_street:
                 name_variations.append(f"{raw_street} {street_type}")
 
@@ -100,7 +97,7 @@ class AddressMatcher:
                 # Precision matching stages (Confidence 1.0)
                 if parsed.unit and clean_number:
                     row = self._query(cur, """
-                        SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude
+                        SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude, mb_code
                         FROM gnaf_core
                         WHERE street_name = %s AND suburb_name = %s AND street_type = %s
                           AND number_first = %s AND flat_number = %s
@@ -110,7 +107,7 @@ class AddressMatcher:
 
                 if clean_number:
                     row = self._query(cur, """
-                        SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude
+                        SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude, mb_code
                         FROM gnaf_core
                         WHERE street_name = %s AND suburb_name = %s AND street_type = %s
                           AND number_first = %s
@@ -119,7 +116,7 @@ class AddressMatcher:
                     if row: return self._to_result(parsed, row, 1.0, "PRECISION_NUMBER")
 
                 row = self._query(cur, """
-                    SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude
+                    SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude, mb_code
                     FROM gnaf_core
                     WHERE street_name = %s AND suburb_name = %s AND street_type = %s
                     LIMIT 1
@@ -128,15 +125,15 @@ class AddressMatcher:
 
             # Final Fallback: Fuzzy Match
             row = self._query(cur, """
-                SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude,
+                SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude, mb_code,
                        (similarity(street_name, %s) + similarity(suburb_name, %s)) / 2 as score
                 FROM gnaf_core
                 WHERE street_name %% %s AND suburb_name %% %s
                 ORDER BY score DESC
                 LIMIT 1
             """, (raw_street, suburb_name, raw_street, suburb_name))
-            if row and row[6] > 0.4:
-                return self._to_result(parsed, row[:6], float(row[6]), "FUZZY_MATCH")
+            if row and row[7] > 0.4:
+                return self._to_result(parsed, row[:7], float(row[7]), "FUZZY_MATCH")
 
         return None
 
@@ -145,14 +142,15 @@ class AddressMatcher:
         return cur.fetchone()
 
     def _to_result(self, parsed: ParsedAddress, row: tuple, confidence: float, match_type: str) -> GeocodedResult:
-        pid, street, suburb, postcode, lat, lon = row
+        pid, street, suburb, postcode, lat, lon, mb_code = row
         return GeocodedResult(
             **parsed.model_dump(),
             latitude=lat,
             longitude=lon,
             confidence=confidence,
             match_type=match_type,
-            address_detail_pid=pid
+            address_detail_pid=pid,
+            mb_code=mb_code
         )
 
     def __del__(self):
