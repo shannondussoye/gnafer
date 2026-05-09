@@ -12,6 +12,7 @@ help:
 	@echo "  make logs       - Tail service logs"
 	@echo "  make db-init    - Initialise database schema and load sample data"
 	@echo "  make db-index   - Apply performance indexes to the database"
+	@echo "  make db-status  - Check database row counts and sample data"
 	@echo "  make run        - Execute the geocoding pipeline"
 	@echo "  make test       - Run pytest suite"
 	@echo ""
@@ -44,9 +45,11 @@ db-init:
 	@echo "Initialising database..."
 	uv run python src/ingest.py
 
-db-index:
-	@echo "Applying indexes..."
-	psql -h localhost -U postgres -d gnafer -f sql/indexes_final.sql
+db-status:
+	@echo "Database Row Count:"
+	@docker compose exec db psql -U postgres -d gnafer -t -c "SELECT count(*) FROM gnaf_core;"
+	@echo "\nSample Data:"
+	@docker compose exec db psql -U postgres -d gnafer -c "SELECT address_detail_pid, street_name, suburb_name, postcode FROM gnaf_core LIMIT 5;"
 
 run:
 	@echo "Running geocoding pipeline..."
