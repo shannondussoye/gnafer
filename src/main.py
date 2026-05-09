@@ -42,7 +42,6 @@ async def main():
     # Check for LLM availability
     llm_available = await check_ollama()
     obs.log_progress("Starting geocoding process", {"total_addresses": 12, "llm_available": llm_available})
-    obs.send_pulse()
 
     with open(INPUT_FILE, "r") as f:
         addresses = [line.strip() for line in f if line.strip()]
@@ -96,8 +95,6 @@ async def main():
                 
                 # Final Fallback: Mark as failed
                 results.append(GeocodedResult(input_address=addr, confidence=0, match_type="FAILED"))
-
-            obs.send_pulse()  # Heartbeat after each batch
 
         dur_p2 = time.time() - start_p2
         print(f"Pass 2 Complete in {dur_p2:.2f}s.")

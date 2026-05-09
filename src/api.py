@@ -48,6 +48,7 @@ async def geocode_single(request: GeocodeRequest):
         match = matcher.match(parsed)
         if match:
             match.parse_method = "REGEX"
+            obs.log_progress("Single Geocode Success", {"address": addr, "method": "REGEX"})
             return match
             
     # 2. LLM Pass (Async)
@@ -56,9 +57,11 @@ async def geocode_single(request: GeocodeRequest):
         match = matcher.match(parsed)
         if match:
             match.parse_method = "LLM"
+            obs.log_progress("Single Geocode Success", {"address": addr, "method": "LLM"})
             return match
             
     # 3. Failure
+    obs.log_progress("Single Geocode Failed", {"address": addr})
     raise HTTPException(status_code=404, detail=f"Could not geocode address: {addr}")
 
 async def process_batch_job(job_id: str, addresses: List[str]):
@@ -80,6 +83,8 @@ async def process_batch_job(job_id: str, addresses: List[str]):
         pending_llm.append(addr)
         jobs[job_id]["processed"] += 1
 
+    obs.log_progress("Batch Job Started", {"job_id": job_id, "total": len(addresses)})
+
     # --- Pass 2: LLM (In batches) ---
     BATCH_SIZE = 15
     for i in range(0, len(pending_llm), BATCH_SIZE):
@@ -95,9 +100,15 @@ async def process_batch_job(job_id: str, addresses: List[str]):
                     results.append(match)
                     jobs[job_id]["successful"] += 1
             # We don't increment "processed" here because we did it in Pass 1
-
+        
     jobs[job_id]["status"] = "completed"
     jobs[job_id]["results"] = [r.model_dump() for r in results]
+    
+    obs.log_completion({
+        "job_id": job_id,
+        "total": len(addresses),
+        "successful": jobs[job_id]["successful"]
+    })
 
 @app.post("/geocode/batch")
 async def geocode_batch(request: BatchGeocodeRequest, background_tasks: BackgroundTasks):
