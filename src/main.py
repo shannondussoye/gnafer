@@ -49,90 +49,87 @@ async def main():
         # Check for LLM availability
         llm_available = await check_ollama()
         obs.log_progress("Starting geocoding process", {"total_addresses": len(addresses), "llm_available": llm_available})
-    except Exception as e:
-        logger.error(f"Failed to initialize geocoding: {e}")
-        obs.ping_healthcheck("/fail")
-        return
 
-    print(f"--- Starting Two-Pass Geocoding ({len(addresses)} addresses) ---")
-    
-    results = []
-    pending_llm = []
-
-    # --- PASS 1: REGEX SPRINT ---
-    print("\n[Pass 1] Running Regex Sprint...")
-    start_p1 = time.time()
-    for addr in tqdm(addresses, desc="Regex Progress"):
-        parsed = parse_address_simple(addr)
-        if parsed:
-            match = matcher.match(parsed)
-            if match:
-                match.parse_method = "REGEX"
-                results.append(match)
-                continue
+        print(f"--- Starting Two-Pass Geocoding ({len(addresses)} addresses) ---")
         
-        # If regex fails or match fails, queue for LLM
-        pending_llm.append(addr)
-    
-    dur_p1 = time.time() - start_p1
-    obs.log_progress("Pass 1 (Regex) Complete", {"matched": len(results), "pending": len(pending_llm), "duration": dur_p1})
-    print(f"Pass 1 Complete: {len(results)} matched, {len(pending_llm)} pending LLM.")
+        results = []
+        pending_llm = []
 
-    # --- PASS 2: LLM BACKFILL ---
-    if pending_llm and llm_available:
-        print(f"\n[Pass 2] Running Async LLM Backfill ({len(pending_llm)} addresses)...")
-        start_p2 = time.time()
+        # --- PASS 1: REGEX SPRINT ---
+        print("\n[Pass 1] Running Regex Sprint...")
+        start_p1 = time.time()
+        for addr in tqdm(addresses, desc="Regex Progress"):
+            parsed = parse_address_simple(addr)
+            if parsed:
+                match = matcher.match(parsed)
+                if match:
+                    match.parse_method = "REGEX"
+                    results.append(match)
+                    continue
+            
+            # If regex fails or match fails, queue for LLM
+            pending_llm.append(addr)
         
-        # Process in batches for concurrency
-        for i in range(0, len(pending_llm), BATCH_SIZE):
-            batch = pending_llm[i:i + BATCH_SIZE]
-            print(f"  Processing LLM batch {i//BATCH_SIZE + 1}...")
+        dur_p1 = time.time() - start_p1
+        obs.log_progress("Pass 1 (Regex) Complete", {"matched": len(results), "pending": len(pending_llm), "duration": dur_p1})
+        print(f"Pass 1 Complete: {len(results)} matched, {len(pending_llm)} pending LLM.")
+
+        # --- PASS 2: LLM BACKFILL ---
+        if pending_llm and llm_available:
+            print(f"\n[Pass 2] Running Async LLM Backfill ({len(pending_llm)} addresses)...")
+            start_p2 = time.time()
             
-            # Run concurrent LLM parses
-            tasks = [parse_address_llm_async(addr) for addr in batch]
-            parsed_batch = await asyncio.gather(*tasks)
-            
-            # Match results
-            for addr, parsed in zip(batch, parsed_batch):
-                if parsed:
-                    match = matcher.match(parsed)
-                    if match:
-                        match.parse_method = "LLM"
-                        results.append(match)
-                        continue
+            # Process in batches for concurrency
+            for i in range(0, len(pending_llm), BATCH_SIZE):
+                batch = pending_llm[i:i + BATCH_SIZE]
+                print(f"  Processing LLM batch {i//BATCH_SIZE + 1}...")
                 
-                # Final Fallback: Mark as failed
+                # Run concurrent LLM parses
+                tasks = [parse_address_llm_async(addr) for addr in batch]
+                parsed_batch = await asyncio.gather(*tasks)
+                
+                # Match results
+                for addr, parsed in zip(batch, parsed_batch):
+                    if parsed:
+                        match = matcher.match(parsed)
+                        if match:
+                            match.parse_method = "LLM"
+                            results.append(match)
+                            continue
+                    
+                    # Final Fallback: Mark as failed
+                    results.append(GeocodedResult(input_address=addr, confidence=0, match_type="FAILED"))
+
+            dur_p2 = time.time() - start_p2
+            print(f"Pass 2 Complete in {dur_p2:.2f}s.")
+        elif pending_llm:
+            logger.info("Marking remaining addresses as FAILED (LLM refinement skipped).")
+            for addr in pending_llm:
                 results.append(GeocodedResult(input_address=addr, confidence=0, match_type="FAILED"))
 
-        dur_p2 = time.time() - start_p2
-        print(f"Pass 2 Complete in {dur_p2:.2f}s.")
-    elif pending_llm:
-        logger.info("Marking remaining addresses as FAILED (LLM refinement skipped).")
-        for addr in pending_llm:
-            results.append(GeocodedResult(input_address=addr, confidence=0, match_type="FAILED"))
-
-    # --- SAVE RESULTS ---
-    df = pd.DataFrame([r.model_dump() for r in results])
-    df.to_csv(OUTPUT_FILE, index=False)
-    
-    # --- FINAL SUMMARY ---
-    summary = {
-        "total": len(addresses),
-        "success": len(df[df.confidence > 0]),
-        "failed": len(df[df.confidence == 0]),
-    }
-    obs.log_completion(summary)
-    obs.ping_healthcheck()
-    
-    print("\n--- Geocoding Summary ---")
-    print(f"Total Addresses: {len(addresses)}")
-    print(f"Successfully Geocoded: {len(df[df.confidence > 0])}")
-    print(f"Failed: {len(df[df.confidence == 0])}")
-    if not df.empty and 'parse_method' in df.columns:
-        print(f"Methods: {df['parse_method'].value_counts().to_dict()}")
-    print(f"Results saved to {OUTPUT_FILE}")
+        # --- SAVE RESULTS ---
+        df = pd.DataFrame([r.model_dump() for r in results])
+        df.to_csv(OUTPUT_FILE, index=False)
+        
+        # --- FINAL SUMMARY ---
+        summary = {
+            "total": len(addresses),
+            "success": len(df[df.confidence > 0]),
+            "failed": len(df[df.confidence == 0]),
+        }
+        obs.log_completion(summary)
+        obs.ping_healthcheck()
+        
+        print("\n--- Geocoding Summary ---")
+        print(f"Total Addresses: {len(addresses)}")
+        print(f"Successfully Geocoded: {len(df[df.confidence > 0])}")
+        print(f"Failed: {len(df[df.confidence == 0])}")
+        if not df.empty and 'parse_method' in df.columns:
+            print(f"Methods: {df['parse_method'].value_counts().to_dict()}")
+        print(f"Results saved to {OUTPUT_FILE}")
 
     except Exception as e:
+        logger.error(f"Geocoding process failed: {e}")
         obs.ping_healthcheck("/fail")
         raise
 
