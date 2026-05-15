@@ -12,8 +12,11 @@ GNAFER is a production-grade, local-first geocoding pipeline designed for high-p
     - **Pass 1 (Regex Sprint)**: Instant, rule-based geocoding for 80%+ of standard addresses (~2,500 rows/sec).
     - **Pass 2 (Async LLM Refinement)**: Concurrent AI refinement using `qwen2.5:1.5b` for complex or messy addresses.
 - **FastAPI Microservice**: Integrated REST API with single and background-batch endpoints.
-- **Cloud Observability**: Integrated "Recorder" pattern using **Logtail** for remote progress tracking.
+- **Observability Stack**:
+    - **Logtail**: Remote structured JSON logging and session tracking.
+    - **Healthchecks.io**: Heartbeat monitoring and crash alerting (with ntfy integration).
 - **Type-Aware Matching**: Intelligent handling of 50+ Australian street types and abbreviations (e.g., "Pde", "Cct", "St").
+- **Production Hardened**: Pre-configured resource limits, Docker log rotation, and automated test suite.
 
 ---
 
@@ -24,6 +27,7 @@ GNAFER is a production-grade, local-first geocoding pipeline designed for high-p
 - **AI/LLM**: Ollama (`qwen2.5:1.5b`)
 - **Package Manager**: `uv` (Deterministic dependencies)
 - **Containerization**: Docker & Docker Compose
+- **Testing**: `pytest` with `httpx` (API contract testing)
 
 ---
 
@@ -36,7 +40,7 @@ GNAFER is a production-grade, local-first geocoding pipeline designed for high-p
 
 ### 2. Infrastructure
 ```bash
-# Install dependencies
+# Install dependencies (including dev tools)
 make setup
 
 # Start the PostgreSQL container
@@ -44,6 +48,9 @@ make start
 
 # Pull the required LLM model
 ollama pull qwen2.5:1.5b
+
+# Check status of components
+make status
 ```
 
 ### 3. Data Ingestion
@@ -66,10 +73,11 @@ make serve
 #### Single Address Geocode
 **POST** `/geocode`
 ```bash
-curl -X POST http://localhost:8000/geocode \
+curl -X POST http://localhost:8000/geocode?min_confidence=0.8 \
      -H "Content-Type: application/json" \
      -d '{"address": "42/7 Weston St, Rosehill 2142"}'
 ```
+*Filter low-quality matches using the optional `min_confidence` parameter.*
 
 #### Batch Job (Background)
 **POST** `/geocode/batch`
@@ -78,25 +86,20 @@ curl -X POST http://localhost:8000/geocode/batch \
      -H "Content-Type: application/json" \
      -d '{"addresses": ["1 George St, Sydney", "497 New South Head Rd, Double Bay"]}'
 ```
-*Returns a `job_id`. Monitor status via `GET /jobs/{job_id}`.*
+*Returns a `job_id`. Monitor progress via `GET /jobs/{job_id}` or stream partial results via `GET /jobs/{job_id}/results`.*
 
 ### CLI Batch Processing
 For large file-based workloads:
 ```bash
 make run
 ```
-*Processes `input.txt` and generates `geocoded.csv`.*
+*Processes `input.txt` and generates `geocoded.csv`. Heartbeat signals are sent to Healthchecks.io.*
 
----
-
-## 📊 Performance Benchmarks
-
-| Component | Speed | Optimization |
-| :--- | :--- | :--- |
-| **Database Match** | < 5ms / query | Indexed Hierarchical Search |
-| **Regex Pass** | ~2,500 addresses/sec | Rule-based Sprint |
-| **LLM Refinement** | ~1.1s / address | Async Concurrency (15x) |
-| **Total Pipeline** | **9x Faster** | Transitioned from 7B to 1.5B Model |
+### Automated Testing
+```bash
+make test
+```
+*Runs the full suite of parser, matcher, and API contract tests.*
 
 ---
 
@@ -107,6 +110,7 @@ make run
 | `DB_NAME` | PostgreSQL Database Name | `gnafer` |
 | `OLLAMA_MODEL` | AI Model for Refinement | `qwen2.5:1.5b` |
 | `LOGTAIL_TOKEN` | Remote Logging Token | (Optional) |
+| `HEALTHCHECKS_UUID` | Heartbeat Monitoring UUID | (Optional) |
 
 ---
 
