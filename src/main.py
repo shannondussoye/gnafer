@@ -44,7 +44,11 @@ async def main():
             return
 
         with open(INPUT_FILE, "r") as f:
-            addresses = [line.strip() for line in f if line.strip()]
+            addresses = [
+                line.strip().strip('"').strip() 
+                for line in f 
+                if line.strip() and not line.startswith("address")
+            ]
 
         # Check for LLM availability
         llm_available = await check_ollama()
