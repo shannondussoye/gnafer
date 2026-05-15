@@ -18,6 +18,22 @@ from src.simple_parser import parse_address_simple
         "unit": None, "number": "10-12", "street": "HIGH", "street_type": "AVE", 
         "suburb": "BRISBANE", "state": "QLD", "postcode": "4000"
     }),
+    ("10 Main Rd, Melbourne 3000", {  # No state
+        "unit": None, "number": "10", "street": "MAIN", "street_type": "RD",
+        "suburb": "MELBOURNE", "state": None, "postcode": "3000"
+    }),
+    ("10 Main Rd, Melbourne VIC", {  # No postcode
+        "unit": None, "number": "10", "street": "MAIN", "street_type": "RD",
+        "suburb": "MELBOURNE", "state": "VIC", "postcode": None
+    }),
+    ("10 Main Rd, Melbourne", {  # Only suburb
+        "unit": None, "number": "10", "street": "MAIN", "street_type": "RD",
+        "suburb": "MELBOURNE", "state": None, "postcode": None
+    }),
+    ("123 Fake CCT, Springfield", {  # Additional street type
+        "unit": None, "number": "123", "street": "FAKE", "street_type": "CCT",
+        "suburb": "SPRINGFIELD", "state": None, "postcode": None
+    }),
 ])
 def test_parse_address_simple_success(address, expected):
     parsed = parse_address_simple(address)

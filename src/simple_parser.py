@@ -8,8 +8,8 @@ def parse_address_simple(address: str) -> ParsedAddress:
     """
     
     # regex for standard addresses
-    # (?:(?:UNIT|U|APT|SUITE)\s*(?P<unit1>\d+[\w-]*)[,\s]+|(?P<unit2>\d+[\w-]*)/)?(?P<number>\d+[\w-]*)\s+(?P<street>.+?)\s+(?P<type>ST|RD|AVE|CRT|DR|PL|LNE|GR|HWY|CL|BVD|PKWY|TCE|WAY)\.?(?:[,\s]+(?P<suburb>.+?))?(?:\s+(?P<state>NSW|VIC|QLD|WA|SA|TAS|ACT|NT))?(?:\s+(?P<postcode>\d{4}))?$
-    pattern = r"^(?:(?:UNIT|U|APT|SUITE)\s*(?P<unit1>\d+[\w-]*)[,\s]+|(?P<unit2>\d+[\w-]*)/)?(?P<number>\d+[\w-]*)\s+(?P<street>.+?)\s+(?P<type>ST|RD|AVE|CRT|DR|PL|LNE|GR|HWY|CL|BVD|PKWY|TCE|WAY)\.?(?:[,\s]+(?P<suburb>.+?))?(?:\s+(?P<state>NSW|VIC|QLD|WA|SA|TAS|ACT|NT))?(?:\s+(?P<postcode>\d{4}))?$"
+    # (?:(?:UNIT|U|APT|SUITE)\s*(?P<unit1>\d+[\w-]*)[,\s]+|(?P<unit2>\d+[\w-]*)/)?(?P<number>\d+[\w-]*)\s+(?P<street>.+?)\s+(?P<type>ST|RD|AVE|CRT|DR|PL|LNE|GR|HWY|CL|BVD|PKWY|TCE|WAY|CCT|CRES|PDE|ESP|SQ|ARC|MWS)\.?(?:[,\s]+(?P<suburb>.+?))?(?:\s+(?P<state>NSW|VIC|QLD|WA|SA|TAS|ACT|NT))?(?:\s+(?P<postcode>\d{4}))?$
+    pattern = r"^(?:(?:UNIT|U|APT|SUITE)\s*(?P<unit1>\d+[\w-]*)[,\s]+|(?P<unit2>\d+[\w-]*)/)?(?P<number>\d+[\w-]*)\s+(?P<street>.+?)\s+(?P<type>ST|RD|AVE|CRT|DR|PL|LNE|GR|HWY|CL|BVD|PKWY|TCE|WAY|CCT|CRES|PDE|ESP|SQ|ARC|MWS)\.?(?:[,\s]+(?P<suburb>.+?))?(?:\s+(?P<state>NSW|VIC|QLD|WA|SA|TAS|ACT|NT))?(?:\s+(?P<postcode>\d{4}))?$"
     
     match = re.match(pattern, address, re.IGNORECASE)
     if not match:

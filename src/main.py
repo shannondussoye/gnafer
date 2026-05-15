@@ -35,13 +35,16 @@ async def main():
     run_id = str(uuid.uuid4())
     matcher = AddressMatcher()
     obs = GeocoderObservability(run_id=run_id)
+    obs.ping_healthcheck("/start")
     
-    if not os.path.exists(INPUT_FILE):
-        logger.error(f"Input file {INPUT_FILE} not found.")
-        return
+    try:
+        if not os.path.exists(INPUT_FILE):
+            logger.error(f"Input file {INPUT_FILE} not found.")
+            obs.ping_healthcheck("/fail")
+            return
 
-    with open(INPUT_FILE, "r") as f:
-        addresses = [line.strip() for line in f if line.strip()]
+        with open(INPUT_FILE, "r") as f:
+            addresses = [line.strip() for line in f if line.strip()]
 
     # Check for LLM availability
     llm_available = await check_ollama()
@@ -115,6 +118,7 @@ async def main():
         "failed": len(df[df.confidence == 0]),
     }
     obs.log_completion(summary)
+    obs.ping_healthcheck()
     
     print("\n--- Geocoding Summary ---")
     print(f"Total Addresses: {len(addresses)}")
@@ -123,6 +127,10 @@ async def main():
     if not df.empty and 'parse_method' in df.columns:
         print(f"Methods: {df['parse_method'].value_counts().to_dict()}")
     print(f"Results saved to {OUTPUT_FILE}")
+
+    except Exception as e:
+        obs.ping_healthcheck("/fail")
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())
