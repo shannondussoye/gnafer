@@ -117,14 +117,12 @@ This file tracks prioritised improvements across infrastructure hardening, API f
 
 ## ✅ Completion Checklist
 
-- [x] 2.1 Add fuzzy match confidence scoring to API response
-- [x] 2.2 Add batch geocoding progress endpoint
-- [ ] 3.1 Integrate Healthchecks.io heartbeat
+- [x] 3.1 Integrate Healthchecks.io heartbeat
 - [x] 3.2 Add resource limits to `db` service in compose
 - [x] 3.3 Add Docker log rotation to `db` service
 - [x] 4.1 Add standard `status` target to Makefile
 - [x] 4.2 Add `env_file` to Docker Compose
-- [ ] 4.3 Write unit tests with `pytest`
+- [x] 4.3 Write unit tests with `pytest`
 
 ### GEMINI.md Compliance Gaps
 *Sourced from [PORTFOLIO.md](file:///home/shannon/Workspace/projects/PORTFOLIO.md) §3 compliance matrix.*
@@ -132,7 +130,7 @@ This file tracks prioritised improvements across infrastructure hardening, API f
 - [x] **§2.2** Add resource limits (`cpus`, `mem_limit`) to `db` service *(covered by 3.2)*
 - [x] **§2.3** Migrate `docker-compose.yml` to use `env_file: .env` *(covered by 4.2)*
 - [x] **§2.10** Add standard `status` Makefile target *(covered by 4.1)*
-- [ ] **§2.11** Integrate Healthchecks.io heartbeat *(covered by 3.1)*
-- [ ] **§2.11** Wire up ntfy alerting via Healthchecks.io notification settings
+- [x] **§2.11** Integrate Healthchecks.io heartbeat *(covered by 3.1)*
+- [x] **§2.11** Wire up ntfy alerting via Healthchecks.io notification settings
 - [x] **§2.12** Add Docker log rotation (`json-file` driver with `max-size`/`max-file`) *(covered by 3.3)*
-- [ ] **§2.13** Add `tests/` directory with `pytest` test suite *(covered by 4.3)*
+- [x] **§2.13** Add `tests/` directory with `pytest` test suite *(covered by 4.3)*

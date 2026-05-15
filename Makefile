@@ -4,7 +4,7 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 setup: ## Install dependencies using uv
-	uv sync
+	uv sync --all-extras
 
 start: ## Start the database container
 	docker compose up -d
@@ -27,7 +27,7 @@ db-status: ## Show database ingestion status
 	@docker exec -it gnafer-db psql -U postgres -d gnafer -c "SELECT address_detail_pid, street_name, suburb_name, postcode FROM gnaf_core LIMIT 2;"
 
 test: ## Run unit tests
-	uv run pytest tests/
+	uv run pytest tests/ -v --tb=short
 
 run: ## Run the geocoding pipeline
 	uv run python src/main.py

@@ -136,6 +136,7 @@ async def process_batch_job(job_id: str, addresses: List[str]):
         "total": len(addresses),
         "successful": jobs[job_id]["successful"]
     })
+    obs.ping_healthcheck()
 
 @app.post("/geocode/batch")
 async def geocode_batch(request: BatchGeocodeRequest, background_tasks: BackgroundTasks):

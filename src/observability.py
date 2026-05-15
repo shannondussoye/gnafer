@@ -2,6 +2,7 @@ import os
 import logging
 import sys
 import uuid
+import urllib.request
 from logtail import LogtailHandler
 from pythonjsonlogger import jsonlogger
 from dotenv import load_dotenv
@@ -11,6 +12,7 @@ load_dotenv()
 class GeocoderObservability:
     def __init__(self, run_id: str = None):
         self.logtail_token = os.getenv("LOGTAIL_TOKEN")
+        self.healthcheck_uuid = os.getenv("HEALTHCHECKS_UUID")
         self.run_id = run_id or str(uuid.uuid4())
         
         # Setup Logger
@@ -48,4 +50,14 @@ class GeocoderObservability:
     def log_completion(self, stats: dict):
         """Log final batch statistics."""
         self.log_progress("Geocoding Batch Complete", stats)
+
+    def ping_healthcheck(self, suffix: str = ""):
+        """Ping Healthchecks.io. suffix can be '/fail' or '/start'."""
+        if not self.healthcheck_uuid or "your_uuid" in self.healthcheck_uuid:
+            return
+        try:
+            url = f"https://hc-ping.com/{self.healthcheck_uuid}{suffix}"
+            urllib.request.urlopen(url, timeout=10)
+        except Exception:
+            self.logger.warning("Healthchecks.io ping failed", extra={"run_id": self.run_id})
 
