@@ -46,9 +46,13 @@ async def main():
         with open(INPUT_FILE, "r") as f:
             addresses = [line.strip() for line in f if line.strip()]
 
-    # Check for LLM availability
-    llm_available = await check_ollama()
-    obs.log_progress("Starting geocoding process", {"total_addresses": len(addresses), "llm_available": llm_available})
+        # Check for LLM availability
+        llm_available = await check_ollama()
+        obs.log_progress("Starting geocoding process", {"total_addresses": len(addresses), "llm_available": llm_available})
+    except Exception as e:
+        logger.error(f"Failed to initialize geocoding: {e}")
+        obs.ping_healthcheck("/fail")
+        return
 
     print(f"--- Starting Two-Pass Geocoding ({len(addresses)} addresses) ---")
     
