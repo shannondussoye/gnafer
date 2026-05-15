@@ -39,7 +39,7 @@ graph TD
     "unit": "",
     "level": "5",
     "number": "10",
-    "street": "Main Rd",
+    "street": "Main",
     "street_type": "RD",
     "suburb": "Melbourne",
     "state": "VIC",
