@@ -1,17 +1,35 @@
 # GNAFER: High-Performance Australian Geocoder
 
-GNAFER is a production-grade, local-first geocoding pipeline designed for high-precision Australian address resolution. It leverages the full **GNAF CORE** dataset (15.8M rows) combined with a hybrid **Two-Pass matching engine** (Regex + LLM) to achieve sub-unit accuracy at scale.
+GNAFER is a local-first geocoding pipeline designed for high-precision Australian address resolution. It leverages the full **GNAF CORE** dataset (15.8M rows) combined with a hybrid **Two-Pass matching engine** (Regex + LocalLLM) to achieve sub-unit accuracy at scale.
 
 ---
 
 ## 🗺️ The Challenge: Real-World Australian Geocoding
 
-Geocoding sounds straightforward until you're dealing with real-world Australian addresses. Unit numbers, irregular formats, and inconsistent inputs mean a raw address string often fails before it ever hits a traditional geocoding API.
+Geocoding sounds straightforward until you're dealing with real-world Australian addresses. Irregular formats, and inconsistent inputs mean a raw address string often fails before it ever hits a traditional geocoding API.
 
 GNAFER was built to solve this by treating address standardisation as a sequential pipeline:
 
-1.  **Regex Parsing First**: Fast, lightweight, and handles the majority of common formats (e.g., converting `"1/255 George Street, Sydney"` into a structured, geocodable form) instantly.
-2.  **Local AI Fallback**: When regex can't parse an address, a locally-run AI model (`qwen2.5:1.5b`) picks up the slack, keeping the pipeline robust without relying on external APIs or sacrificing data privacy.
+```mermaid
+graph TD
+    A[Input Address String] --> B{Pass 1: Regex Sprint}
+    B -- "Success (Structured)" --> C[GNAF Database Match]
+    B -- "Fail (Messy/Complex)" --> D{Pass 2: Local LLM}
+    D -- "Success (Structured)" --> C
+    D -- "Fail" --> E[Geocoding Failed]
+    C --> F[Precision Lat/Long + Mesh Block]
+```
+
+### 📍 Example 1: The Regex Sprint (Fast & Deterministic)
+**Input**: `"1/255 George Street, Sydney"`
+- **Action**: Regex identifies `Unit 1`, `Number 255`, `Street GEORGE`, `Type ST`.
+- **Result**: Instant match in the GNAF database (~5ms).
+
+### 🤖 Example 2: The AI Fallback (Robust & Intelligent)
+**Input**: `"Level 5, 10 Main Rd, Melbourne"`
+- **Action**: Regex fails to handle "Level 5" prefix.
+- **AI Refinement**: Local `qwen2.5:1.5b` parses the string into a structured object, identifying the level and unit correctly.
+- **Result**: Successful match that would have otherwise failed.
 
 The result is a reliable geocoder that degrades gracefully rather than failing silently—designed specifically for Australian spatial data, property datasets, and high-volume address matching.
 
