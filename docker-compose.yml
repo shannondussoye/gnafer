@@ -3,10 +3,18 @@ services:
     image: postgres:16-alpine
     container_name: gnafer-db
     restart: always
+    mem_limit: 2G
+    cpus: 1.0
+    env_file: .env
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-gnafer}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
