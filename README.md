@@ -25,7 +25,7 @@ graph TD
 - **Action**: Regex identifies `Unit 1`, `Number 255`, `Street GEORGE`, `Type ST`.
 - **Structured Output**:
   ```json
-  { "unit": "1", "number": "255", "street": "GEORGE", "type": "ST", "suburb": "SYDNEY" }
+  { "unit": "1", "number": "255", "street": "GEORGE", "street_type": "ST", "suburb": "SYDNEY" }
   ```
 - **Result**: Instant match in the GNAF database (~5ms).
 
@@ -35,7 +35,15 @@ graph TD
 - **AI Refinement**: Local `qwen2.5:1.5b` identifies the hierarchical components.
 - **Structured Output**:
   ```json
-  { "unit": "5", "level": "5", "number": "10", "street": "MAIN", "type": "RD", "suburb": "MELBOURNE" }
+  {
+    "unit": "5",
+    "number": "10",
+    "street": "Main Rd",
+    "street_type": "RD",
+    "suburb": "Melbourne",
+    "state": "VIC",
+    "postcode": "3000"
+  }
   ```
 - **Result**: Successful match that would have otherwise failed.
 
