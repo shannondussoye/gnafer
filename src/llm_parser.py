@@ -15,11 +15,12 @@ You are a specialist Australian address parser.
 Extract components from the input address into a JSON object.
 Rules:
 - Convert street types to standard abbreviations (ST, RD, AVE, etc.).
-- Handle unit numbers, level numbers, and shop numbers correctly.
+- Handle unit numbers (unit), level/floor numbers (level), and shop numbers correctly.
+- Hierarchical fields (unit, level) should contain ONLY the identifier (e.g., "5", "G", "UG"), not the words "Unit", "Level", or "Floor".
 - If a range is given (e.g., 123-125), put the first number in 'number'.
 - Return ONLY valid JSON.
 
-Fields: unit, number, street, street_type, suburb, state, postcode.
+Fields: unit, level, number, street, street_type, suburb, state, postcode.
 """
 
 async def parse_address_llm_async(address: str) -> ParsedAddress:

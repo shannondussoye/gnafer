@@ -95,15 +95,39 @@ class AddressMatcher:
 
             for name_var in name_variations:
                 # Precision matching stages (Confidence 1.0)
-                if parsed.unit and clean_number:
-                    row = self._query(cur, """
-                        SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude, mb_code
-                        FROM gnaf_core
-                        WHERE street_name = %s AND suburb_name = %s AND street_type = %s
-                          AND number_first = %s AND flat_number = %s
-                        LIMIT 1
-                    """, (name_var, suburb_name, street_type, clean_number, parsed.unit))
-                    if row: return self._to_result(parsed, row, 1.0, "PRECISION_UNIT")
+                if clean_number:
+                    # Case 1: Both Unit and Level
+                    if parsed.unit and parsed.level:
+                        row = self._query(cur, """
+                            SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude, mb_code
+                            FROM gnaf_core
+                            WHERE street_name = %s AND suburb_name = %s AND street_type = %s
+                              AND number_first = %s AND flat_number = %s AND level_number = %s
+                            LIMIT 1
+                        """, (name_var, suburb_name, street_type, clean_number, parsed.unit, parsed.level))
+                        if row: return self._to_result(parsed, row, 1.0, "PRECISION_UNIT_LEVEL")
+
+                    # Case 2: Just Unit
+                    if parsed.unit:
+                        row = self._query(cur, """
+                            SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude, mb_code
+                            FROM gnaf_core
+                            WHERE street_name = %s AND suburb_name = %s AND street_type = %s
+                              AND number_first = %s AND flat_number = %s
+                            LIMIT 1
+                        """, (name_var, suburb_name, street_type, clean_number, parsed.unit))
+                        if row: return self._to_result(parsed, row, 1.0, "PRECISION_UNIT")
+
+                    # Case 3: Just Level
+                    if parsed.level:
+                        row = self._query(cur, """
+                            SELECT address_detail_pid, street_name, suburb_name, postcode, latitude, longitude, mb_code
+                            FROM gnaf_core
+                            WHERE street_name = %s AND suburb_name = %s AND street_type = %s
+                              AND number_first = %s AND level_number = %s
+                            LIMIT 1
+                        """, (name_var, suburb_name, street_type, clean_number, parsed.level))
+                        if row: return self._to_result(parsed, row, 1.0, "PRECISION_LEVEL")
 
                 if clean_number:
                     row = self._query(cur, """
