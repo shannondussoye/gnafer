@@ -20,7 +20,7 @@ load_dotenv()
 
 INPUT_FILE = "input.txt"
 OUTPUT_FILE = "geocoded.csv"
-BATCH_SIZE = 15  # Concurrent LLM requests
+BATCH_SIZE = int(os.getenv("LLM_BATCH_SIZE", "15"))  # Concurrent LLM requests
 
 async def check_ollama():
     from ollama import AsyncClient
