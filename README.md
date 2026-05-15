@@ -4,6 +4,19 @@ GNAFER is a production-grade, local-first geocoding pipeline designed for high-p
 
 ---
 
+## 🗺️ The Challenge: Real-World Australian Geocoding
+
+Geocoding sounds straightforward until you're dealing with real-world Australian addresses. Unit numbers, irregular formats, and inconsistent inputs mean a raw address string often fails before it ever hits a traditional geocoding API.
+
+GNAFER was built to solve this by treating address standardisation as a sequential pipeline:
+
+1.  **Regex Parsing First**: Fast, lightweight, and handles the majority of common formats (e.g., converting `"1/255 George Street, Sydney"` into a structured, geocodable form) instantly.
+2.  **Local AI Fallback**: When regex can't parse an address, a locally-run AI model (`qwen2.5:1.5b`) picks up the slack, keeping the pipeline robust without relying on external APIs or sacrificing data privacy.
+
+The result is a reliable geocoder that degrades gracefully rather than failing silently—designed specifically for Australian spatial data, property datasets, and high-volume address matching.
+
+---
+
 ## 🚀 Key Features
 
 - **Sub-Unit Precision**: Hierarchical matching logic that resolves down to Unit/Shop/Level (e.g., "Unit 5, Level 2...").
