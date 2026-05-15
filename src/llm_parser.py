@@ -1,6 +1,7 @@
 import os
 import json
-from ollama import AsyncClient
+import asyncio
+from ollama import AsyncClient, Client
 from src.models import ParsedAddress
 from dotenv import load_dotenv
 
@@ -41,4 +42,23 @@ async def parse_address_llm_async(address: str) -> ParsedAddress:
         return ParsedAddress(**data)
     except Exception as e:
         # Graceful failure for LLM errors
+        return None
+
+def parse_address_llm(address: str) -> ParsedAddress:
+    """Parse address using Ollama synchronously."""
+    client = Client(host=OLLAMA_HOST)
+    try:
+        response = client.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {'role': 'system', 'content': SYSTEM_PROMPT},
+                {'role': 'user', 'content': address}
+            ],
+            format='json',
+            options={'temperature': 0}
+        )
+        data = json.loads(response['message']['content'])
+        data['input_address'] = address
+        return ParsedAddress(**data)
+    except Exception:
         return None
