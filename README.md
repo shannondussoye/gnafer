@@ -23,12 +23,20 @@ graph TD
 ### 📍 Example 1: The Regex Sprint (Fast & Deterministic)
 **Input**: `"1/255 George Street, Sydney"`
 - **Action**: Regex identifies `Unit 1`, `Number 255`, `Street GEORGE`, `Type ST`.
+- **Structured Output**:
+  ```json
+  { "unit": "1", "number": "255", "street": "GEORGE", "type": "ST", "suburb": "SYDNEY" }
+  ```
 - **Result**: Instant match in the GNAF database (~5ms).
 
 ### 🤖 Example 2: The AI Fallback (Robust & Intelligent)
 **Input**: `"Level 5, 10 Main Rd, Melbourne"`
 - **Action**: Regex fails to handle "Level 5" prefix.
-- **AI Refinement**: Local `qwen2.5:1.5b` parses the string into a structured object, identifying the level and unit correctly.
+- **AI Refinement**: Local `qwen2.5:1.5b` identifies the hierarchical components.
+- **Structured Output**:
+  ```json
+  { "unit": "5", "level": "5", "number": "10", "street": "MAIN", "type": "RD", "suburb": "MELBOURNE" }
+  ```
 - **Result**: Successful match that would have otherwise failed.
 
 The result is a reliable geocoder that degrades gracefully rather than failing silently—designed specifically for Australian spatial data, property datasets, and high-volume address matching.
