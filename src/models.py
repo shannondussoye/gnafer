@@ -4,7 +4,6 @@ from typing import Optional
 class ParsedAddress(BaseModel):
     input_address: str
     unit: Optional[str] = ""
-    level: Optional[str] = ""
     number: Optional[str] = ""
     street: Optional[str] = ""
     street_type: Optional[str] = ""
@@ -14,7 +13,6 @@ class ParsedAddress(BaseModel):
 
 class GeocodedResult(BaseModel):
     unit: Optional[str] = ""
-    level: Optional[str] = ""
     number: Optional[str] = ""
     street: Optional[str] = ""
     street_type: Optional[str] = ""

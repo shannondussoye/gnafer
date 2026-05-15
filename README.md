@@ -25,19 +25,18 @@ graph TD
 - **Action**: Regex identifies `Unit 1`, `Number 255`, `Street GEORGE`, `Type ST`.
 - **Structured Output**:
   ```json
-  { "unit": "1", "level": "", "number": "255", "street": "GEORGE", "street_type": "ST", "suburb": "SYDNEY" }
+  { "unit": "1", "number": "255", "street": "GEORGE", "street_type": "ST", "suburb": "SYDNEY" }
   ```
 - **Result**: Instant match in the GNAF database (~5ms).
 
 ### 🤖 Example 2: The AI Fallback (Robust & Intelligent)
 **Input**: `"Level 5, 10 Main Rd, Melbourne"`
 - **Action**: Regex fails to handle "Level 5" prefix.
-- **AI Refinement**: Local `qwen2.5:1.5b` identifies the hierarchical components, correctly separating Level from Unit.
+- **AI Refinement**: Local `qwen2.5:1.5b` identifies the components while ignoring the non-essential floor/level data.
 - **Structured Output**:
   ```json
   {
     "unit": "",
-    "level": "5",
     "number": "10",
     "street": "Main",
     "street_type": "RD",
