@@ -117,8 +117,8 @@ This file tracks prioritised improvements across infrastructure hardening, API f
 
 ## ✅ Completion Checklist
 
-- [ ] 2.1 Add fuzzy match confidence scoring to API response
-- [ ] 2.2 Add batch geocoding progress endpoint
+- [x] 2.1 Add fuzzy match confidence scoring to API response
+- [x] 2.2 Add batch geocoding progress endpoint
 - [ ] 3.1 Integrate Healthchecks.io heartbeat
 - [x] 3.2 Add resource limits to `db` service in compose
 - [x] 3.3 Add Docker log rotation to `db` service
