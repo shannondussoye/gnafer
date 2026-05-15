@@ -1,6 +1,53 @@
 # GNAFER: High-Performance Australian Geocoder
 
-GNAFER is a production-grade, local-first geocoding pipeline designed for high-precision Australian address resolution. It leverages the full **GNAF CORE** dataset (15.8M rows) combined with a hybrid **Two-Pass matching engine** (Regex + LLM) to achieve sub-unit accuracy at scale.
+GNAFER is a local-first geocoding pipeline designed for high-precision Australian address resolution. It leverages the full **GNAF CORE** dataset (15.8M rows) combined with a hybrid **Two-Pass matching engine** (Regex + LocalLLM) to achieve sub-unit accuracy at scale.
+
+---
+
+## 🗺️ The Challenge: Real-World Australian Geocoding
+
+Geocoding sounds straightforward until you're dealing with real-world Australian addresses. Irregular formats, and inconsistent inputs mean a raw address string often fails before it ever hits a traditional geocoding API.
+
+GNAFER was built to solve this by treating address standardisation as a sequential pipeline:
+
+```mermaid
+graph TD
+    A[Input Address String] --> B{Pass 1: Regex Sprint}
+    B -- "Success (Structured)" --> C[GNAF Database Match]
+    B -- "Fail (Messy/Complex)" --> D{Pass 2: Local LLM}
+    D -- "Success (Structured)" --> C
+    D -- "Fail" --> E[Geocoding Failed]
+    C --> F[Precision Lat/Long + Mesh Block]
+```
+
+### 📍 Example 1: The Regex Sprint (Fast & Deterministic)
+**Input**: `"1/255 George Street, Sydney"`
+- **Action**: Regex identifies `Unit 1`, `Number 255`, `Street GEORGE`, `Type ST`.
+- **Structured Output**:
+  ```json
+  { "unit": "1", "number": "255", "street": "GEORGE", "street_type": "ST", "suburb": "SYDNEY" }
+  ```
+- **Result**: Instant match in the GNAF database (~5ms).
+
+### 🤖 Example 2: The AI Fallback (Robust & Intelligent)
+**Input**: `"Level 5, 10 Main Rd, Melbourne"`
+- **Action**: Regex fails to handle "Level 5" prefix.
+- **AI Refinement**: Local `qwen2.5:1.5b` identifies the components while ignoring the non-essential floor/level data.
+- **Structured Output**:
+  ```json
+  {
+    "unit": "",
+    "number": "10",
+    "street": "Main",
+    "street_type": "RD",
+    "suburb": "Melbourne",
+    "state": "VIC",
+    "postcode": "3000"
+  }
+  ```
+- **Result**: Successful match that would have otherwise failed.
+
+The result is a reliable geocoder that degrades gracefully rather than failing silently—designed specifically for Australian spatial data, property datasets, and high-volume address matching.
 
 ---
 
