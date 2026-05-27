@@ -114,6 +114,8 @@ GNAFER uses a **hybrid topology**: PostgreSQL runs in Docker, while Ollama runs 
 
 > 💡 If Ollama is unavailable, the pipeline **degrades gracefully** — trigram matching still works, only LLM verification is skipped.
 
+> 🐳 **Docker Networking Note:** Inside a Docker container, `localhost` refers to the container itself. If the python app is running inside Docker but Ollama is running on the host, you must update `.env` to set `OLLAMA_HOST=http://host.docker.internal:11434`. On Linux, the `docker-compose.yml` automatically defines this host gateway.
+
 ### Quick Start
 
 ```bash
@@ -130,7 +132,8 @@ make start
 # 4. Pull the LLM model
 ollama pull qwen2.5:latest
 
-# 5. Download GNAF CORE, place in data/, and ingest
+# 5. Download GNAF CORE, place in data/GNAF_CORE.psv, and ingest
+# (Note: Ingestion will raise a FileNotFoundError if the GNAF file is missing)
 make db-init
 
 # 6. Check all components are up
@@ -153,6 +156,21 @@ docker compose up -d
 
 The API will be available at `http://localhost:8000`. The app container depends on the database being healthy before starting.
 
+#### Running CLI Batch Processing via Docker
+
+Since `docker-compose.yml` mounts the project root directory as a volume, you can run the CLI batch pipeline inside the container and exchange files with the host system:
+
+```bash
+# 1. Create input.txt on your host machine
+echo "G04/7 - 11 Derowie Ave, Homebush, NSW 2140" > input.txt
+
+# 2. Run the pipeline inside the container
+docker compose run --rm app uv run python src/main.py
+
+# 3. Results will be saved to geocoded.csv on your host machine
+cat geocoded.csv
+```
+
 ---
 
 ## 🖥️ Usage
@@ -161,6 +179,22 @@ The API will be available at `http://localhost:8000`. The app container depends 
 
 ```bash
 make serve
+```
+
+#### Health Check
+
+**GET** `/health` — verifies database connectivity
+
+```bash
+curl http://localhost:8000/health
+```
+
+**Example Response:**
+```json
+{
+  "status": "healthy",
+  "database": "connected"
+}
 ```
 
 #### Single Address
@@ -172,6 +206,33 @@ curl -X POST http://localhost:8000/geocode \
      -d '{"address": "42/7 Weston St, Rosehill, NSW 2142"}'
 ```
 
+**Example Response:**
+```json
+{
+  "input_address": "42/7 Weston St, Rosehill, NSW 2142",
+  "similarity_score": 1.0,
+  "address_detail_pid": "GANSW705856403",
+  "address_label": "42/7 WESTON STREET, ROSEHILL NSW 2142",
+  "flat_number": "42",
+  "level_type": null,
+  "level_number": null,
+  "number_first": "7",
+  "number_last": null,
+  "lot_number": null,
+  "street_name": "WESTON",
+  "street_type": "STREET",
+  "street_suffix": null,
+  "suburb_name": "ROSEHILL",
+  "state": "NSW",
+  "postcode": "2142",
+  "latitude": -33.824248,
+  "longitude": 151.025345,
+  "mb_code": "10095873900",
+  "llm_verified": false,
+  "match_method": "TRIGRAM"
+}
+```
+
 #### Batch Job (Background)
 
 **POST** `/geocode/batch`
@@ -181,17 +242,74 @@ curl -X POST http://localhost:8000/geocode/batch \
      -d '{"addresses": ["1 George St, Sydney, NSW 2000", "497 New South Head Rd, Double Bay, NSW 2028"]}'
 ```
 
-Returns a `job_id`. Monitor via `GET /jobs/{job_id}`, fetch results via `GET /jobs/{job_id}/results`.
+**Example Response:**
+```json
+{
+  "job_id": "8c562da9-67a0-4815-a637-4579a741d714",
+  "message": "Batch job started"
+}
+```
+
+#### Job Status
+
+**GET** `/jobs/{job_id}`
+```bash
+curl http://localhost:8000/jobs/8c562da9-67a0-4815-a637-4579a741d714
+```
+
+**Example Response:**
+```json
+{
+  "job_id": "8c562da9-67a0-4815-a637-4579a741d714",
+  "status": "completed",
+  "total": 2,
+  "processed": 2,
+  "successful": 2,
+  "progress_pct": 100.0
+}
+```
+
+#### Job Results
+
+**GET** `/jobs/{job_id}/results`
+```bash
+curl http://localhost:8000/jobs/8c562da9-67a0-4815-a637-4579a741d714/results
+```
+
+**Example Response:**
+```json
+{
+  "job_id": "8c562da9-67a0-4815-a637-4579a741d714",
+  "status": "completed",
+  "results": [
+    {
+      "input_address": "1 George St, Sydney, NSW 2000",
+      "similarity_score": 1.0,
+      "address_detail_pid": "GANSW717586221",
+      "address_label": "1 GEORGE STREET, SYDNEY NSW 2000",
+      "flat_number": null,
+      "level_type": null,
+      "level_number": null,
+      "number_first": "1",
+      "number_last": null,
+      "lot_number": null,
+      "street_name": "GEORGE",
+      "street_type": "STREET",
+      "street_suffix": null,
+      "suburb_name": "SYDNEY",
+      "state": "NSW",
+      "postcode": "2000",
+      "latitude": -33.8599,
+      "longitude": 151.2094,
+      "mb_code": "10095873900",
+      "llm_verified": false,
+      "match_method": "TRIGRAM"
+    }
+  ]
+}
+```
 
 > Batch requests are limited to 10,000 addresses. Completed jobs expire after 1 hour (configurable via `JOB_TTL_SECONDS`).
-
-#### Health Check
-
-**GET** `/health` — verifies database connectivity
-
-```bash
-curl http://localhost:8000/health
-```
 
 ### CLI Batch Processing
 

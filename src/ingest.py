@@ -33,8 +33,9 @@ def init_db(conn: "psycopg2.extensions.connection") -> None:
 def ingest_gnaf(conn: "psycopg2.extensions.connection", file_path: Path) -> None:
     """Load GNAF CORE data into PostgreSQL."""
     if not file_path.exists():
-        logger.warning("GNAF data file not found at %s. Skipping ingestion.", file_path)
-        return
+        raise FileNotFoundError(
+            f"GNAF data file not found at {file_path}. Please download G-NAF and place it in the data/ directory."
+        )
 
     # Detect delimiter
     ext = file_path.suffix.lower()
