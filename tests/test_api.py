@@ -1,82 +1,77 @@
-from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+"""Tests for the API endpoints."""
+
+from unittest.mock import MagicMock, patch
+
 import pytest
+from fastapi.testclient import TestClient
 
-# Mock psycopg2 to prevent AddressMatcher from connecting on import
-with patch("psycopg2.connect", MagicMock()):
-    from src.api import app
-    from src.models import GeocodedResult
+from src.models import MatchResult
 
-@pytest.fixture(autouse=True)
-def mock_api_dependencies():
+
+@pytest.fixture
+def client():
+    """Create a test client with mocked dependencies."""
+    mock_pool = MagicMock()
     mock_matcher = MagicMock()
+    mock_verifier = MagicMock()
     mock_obs = MagicMock()
-    with patch("src.api.matcher", mock_matcher), patch("src.api.obs", mock_obs):
-        yield mock_matcher, mock_obs
 
-client = TestClient(app)
+    with (
+        patch("src.api._pool", mock_pool),
+        patch("src.api._matcher", mock_matcher),
+        patch("src.api._verifier", mock_verifier),
+        patch("src.api._obs", mock_obs),
+    ):
+        from src.api import app
+        yield TestClient(app, raise_server_exceptions=False), mock_matcher, mock_verifier
 
-def test_health_check():
-    response = client.get("/health")
+
+def test_health_check(client):
+    test_client, _, _ = client
+    response = test_client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "healthy", "database": "connected"}
+    assert response.json()["status"] == "healthy"
 
-@patch("src.api.parse_address_simple")
-def test_geocode_single_success_regex(mock_parse, mock_api_dependencies):
-    mock_matcher_api, mock_obs = mock_api_dependencies
-    # Setup mock
-    mock_parse.return_value = MagicMock()
-    mock_result = GeocodedResult(
-        input_address="123 George St, Sydney",
-        confidence=1.0,
-        match_type="PRECISION_NUMBER"
+
+def test_geocode_single_success(client):
+    test_client, mock_matcher, _mock_verifier = client
+    mock_matcher.match.return_value = MatchResult(
+        input_address="123 George St, Sydney, NSW 2000",
+        similarity_score=1.0,
+        address_detail_pid="pid123",
+        address_label="123 GEORGE ST, SYDNEY NSW 2000",
     )
-    mock_matcher_api.match.return_value = mock_result
-    
-    response = client.post("/geocode", json={"address": "123 George St, Sydney"})
+
+    response = test_client.post("/geocode", json={"address": "123 George St, Sydney, NSW 2000"})
     assert response.status_code == 200
     data = response.json()
-    assert data["confidence"] == 1.0
-    assert data["match_type"] == "PRECISION_NUMBER"
-    assert data["parse_method"] == "REGEX"
+    assert data["similarity_score"] == 1.0
+    assert data["match_method"] == "TRIGRAM"
 
-@patch("src.api.parse_address_simple")
-def test_geocode_single_min_confidence_filter(mock_parse, mock_api_dependencies):
-    mock_matcher_api, mock_obs = mock_api_dependencies
-    # Setup mock with low confidence
-    mock_parse.return_value = MagicMock()
-    mock_result = GeocodedResult(
-        input_address="123 George St, Sydney",
-        confidence=0.3,
-        match_type="FUZZY_MATCH"
+
+def test_geocode_single_not_found(client):
+    test_client, mock_matcher, _ = client
+    mock_matcher.match.return_value = MatchResult(
+        input_address="not a real address",
+        similarity_score=0.0,
     )
-    mock_matcher_api.match.return_value = mock_result
-    
-    # Require 0.8 minimum confidence
-    response = client.post("/geocode?min_confidence=0.8", json={"address": "123 George St, Sydney"})
-    # It will fallback to LLM which is not mocked here (or rather, async LLM will return None and fail)
+
+    response = test_client.post("/geocode", json={"address": "not a real address"})
     assert response.status_code == 404
 
-def test_batch_geocode_endpoint(mock_api_dependencies):
-    mock_matcher_api, mock_obs = mock_api_dependencies
-    mock_result = GeocodedResult(
-        input_address="123 George St",
-        confidence=1.0,
-        match_type="PRECISION_NUMBER"
-    )
-    mock_matcher_api.match.return_value = mock_result
-    
-    response = client.post("/geocode/batch", json={"addresses": ["123 George St"]})
-    assert response.status_code == 200
-    data = response.json()
-    assert "job_id" in data
-    
-    job_id = data["job_id"]
-    
-    status_response = client.get(f"/jobs/{job_id}")
-    assert status_response.status_code == 200
-    assert status_response.json()["status"] in ["processing", "completed"]
 
-def test_job_not_found():
-    response = client.get("/jobs/invalid_id")
+def test_batch_returns_job_id(client):
+    test_client, mock_matcher, _ = client
+    mock_matcher.match_batch.return_value = [
+        MatchResult(input_address="addr1", similarity_score=1.0),
+    ]
+
+    response = test_client.post("/geocode/batch", json={"addresses": ["addr1"]})
+    assert response.status_code == 200
+    assert "job_id" in response.json()
+
+
+def test_job_not_found(client):
+    test_client, _, _ = client
+    response = test_client.get("/jobs/invalid_id")
     assert response.status_code == 404

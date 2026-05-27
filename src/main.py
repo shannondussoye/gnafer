@@ -1,141 +1,121 @@
+"""GNAF Geocoder — CLI batch pipeline.
+
+Trigram-first matching with optional LLM verification for high-confidence candidates.
+"""
+
 import asyncio
-import pandas as pd
-import os
-import time
-from typing import List
-from tqdm import tqdm
-from src.simple_parser import parse_address_simple
-from src.llm_parser import parse_address_llm_async
-from src.matcher import AddressMatcher
-from src.models import GeocodedResult
-from src.observability import GeocoderObservability
-from dotenv import load_dotenv
+import csv
 import logging
 import uuid
+from pathlib import Path
 
-# Setup logging
+from src.config import settings
+from src.llm_verifier import LLMVerifier
+from src.models import MatchResult
+from src.observability import GeocoderObservability
+from src.trigram_matcher import TrigramAddressMatcher, get_connection_pool, load_street_types
+
 logger = logging.getLogger("gnafer")
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+INPUT_FILE = PROJECT_ROOT / "input.txt"
+OUTPUT_FILE = PROJECT_ROOT / "geocoded.csv"
 
-INPUT_FILE = "input.txt"
-OUTPUT_FILE = "geocoded.csv"
-BATCH_SIZE = int(os.getenv("LLM_BATCH_SIZE", "15"))  # Concurrent LLM requests
-
-async def check_ollama():
-    from ollama import AsyncClient
-    client = AsyncClient(host=os.getenv("OLLAMA_HOST", "http://localhost:11434"))
-    try:
-        await client.list()
-        return True
-    except:
-        return False
 
 async def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
     run_id = str(uuid.uuid4())
-    matcher = AddressMatcher()
     obs = GeocoderObservability(run_id=run_id)
     obs.ping_healthcheck("/start")
-    
+
     try:
-        if not os.path.exists(INPUT_FILE):
-            logger.error(f"Input file {INPUT_FILE} not found.")
+        if not INPUT_FILE.exists():
+            logger.error("Input file %s not found.", INPUT_FILE)
             obs.ping_healthcheck("/fail")
             return
 
-        with open(INPUT_FILE, "r") as f:
+        with open(INPUT_FILE) as f:
             addresses = [
-                line.strip().strip('"').strip() 
-                for line in f 
+                line.strip().strip('"').strip()
+                for line in f
                 if line.strip() and not line.startswith("address")
             ]
 
-        # Check for LLM availability
-        llm_available = await check_ollama()
-        obs.log_progress("Starting geocoding process", {"total_addresses": len(addresses), "llm_available": llm_available})
+        abbreviations = load_street_types(settings.psv_path)
+        pool = get_connection_pool()
+        matcher = TrigramAddressMatcher(pool=pool, abbreviations=abbreviations)
+        verifier = LLMVerifier()
+        llm_available = await verifier.check_available()
 
-        print(f"--- Starting Two-Pass Geocoding ({len(addresses)} addresses) ---")
-        
-        results = []
-        pending_llm = []
+        obs.log_progress("Starting geocoding", {
+            "total_addresses": len(addresses),
+            "llm_available": llm_available,
+        })
+        print(f"--- Starting Geocoding ({len(addresses)} addresses) ---")
 
-        # --- PASS 1: REGEX SPRINT ---
-        print("\n[Pass 1] Running Regex Sprint...")
-        start_p1 = time.time()
-        for addr in tqdm(addresses, desc="Regex Progress"):
-            parsed = parse_address_simple(addr)
-            if parsed:
-                match = matcher.match(parsed)
-                if match:
-                    match.parse_method = "REGEX"
-                    results.append(match)
-                    continue
-            
-            # If regex fails or match fails, queue for LLM
-            pending_llm.append(addr)
-        
-        dur_p1 = time.time() - start_p1
-        obs.log_progress("Pass 1 (Regex) Complete", {"matched": len(results), "pending": len(pending_llm), "duration": dur_p1})
-        print(f"Pass 1 Complete: {len(results)} matched, {len(pending_llm)} pending LLM.")
+        # --- Pass 1: Trigram matching ---
+        print("\n[Pass 1] Trigram matching...")
+        try:
+            matches = matcher.match_batch(addresses, workers=settings.trigram_workers, show_progress=True)
+        finally:
+            pool.closeall()
 
-        # --- PASS 2: LLM BACKFILL ---
-        if pending_llm and llm_available:
-            print(f"\n[Pass 2] Running Async LLM Backfill ({len(pending_llm)} addresses)...")
-            start_p2 = time.time()
-            
-            # Process in batches for concurrency
-            for i in range(0, len(pending_llm), BATCH_SIZE):
-                batch = pending_llm[i:i + BATCH_SIZE]
-                print(f"  Processing LLM batch {i//BATCH_SIZE + 1}...")
-                
-                # Run concurrent LLM parses
-                tasks = [parse_address_llm_async(addr) for addr in batch]
-                parsed_batch = await asyncio.gather(*tasks)
-                
-                # Match results
-                for addr, parsed in zip(batch, parsed_batch):
-                    if parsed:
-                        match = matcher.match(parsed)
-                        if match:
-                            match.parse_method = "LLM"
-                            results.append(match)
-                            continue
-                    
-                    # Final Fallback: Mark as failed
-                    results.append(GeocodedResult(input_address=addr, confidence=0, match_type="FAILED"))
+        matched = sum(1 for m in matches if m.similarity_score > 0)
+        print(f"Pass 1 complete: {matched} matched, {len(addresses) - matched} unmatched.")
 
-            dur_p2 = time.time() - start_p2
-            print(f"Pass 2 Complete in {dur_p2:.2f}s.")
-        elif pending_llm:
-            logger.info("Marking remaining addresses as FAILED (LLM refinement skipped).")
-            for addr in pending_llm:
-                results.append(GeocodedResult(input_address=addr, confidence=0, match_type="FAILED"))
+        # --- Pass 2: LLM verification for scores in [threshold, 1.0) ---
+        pending = [
+            (i, m) for i, m in enumerate(matches)
+            if settings.llm_verify_threshold <= m.similarity_score < 1.0
+        ]
 
-        # --- SAVE RESULTS ---
-        df = pd.DataFrame([r.model_dump() for r in results])
-        df.to_csv(OUTPUT_FILE, index=False)
-        
-        # --- FINAL SUMMARY ---
-        summary = {
-            "total": len(addresses),
-            "success": len(df[df.confidence > 0]),
-            "failed": len(df[df.confidence == 0]),
-        }
-        obs.log_completion(summary)
+        if pending and llm_available:
+            print(f"\n[Pass 2] LLM verification ({len(pending)} candidates)...")
+            pairs = [(m.input_address, m.address_label) for _, m in pending]
+            verdicts = await verifier.verify_batch_async(pairs)
+
+            upgraded = 0
+            for (idx, match), verdict in zip(pending, verdicts, strict=True):
+                if verdict:
+                    matches[idx] = match.model_copy(update={
+                        "similarity_score": 1.0,
+                        "llm_verified": True,
+                        "match_method": "TRIGRAM+LLM",
+                    })
+                    upgraded += 1
+            print(f"Pass 2 complete: {upgraded}/{len(pending)} upgraded to 1.0.")
+        elif pending:
+            logger.info("Skipping LLM verification — Ollama not available.")
+
+        # --- Assign match methods and save ---
+        for m in matches:
+            if m.match_method is None:
+                m.match_method = "TRIGRAM" if m.similarity_score > 0 else "FAILED"
+
+        fieldnames = list(MatchResult.model_fields.keys())
+        with open(OUTPUT_FILE, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(m.model_dump() for m in matches)
+
+        success = sum(1 for m in matches if m.similarity_score > 0)
+        verified = sum(1 for m in matches if m.llm_verified)
+
+        obs.log_completion({"total": len(addresses), "success": success, "failed": len(addresses) - success})
         obs.ping_healthcheck()
-        
-        print("\n--- Geocoding Summary ---")
-        print(f"Total Addresses: {len(addresses)}")
-        print(f"Successfully Geocoded: {len(df[df.confidence > 0])}")
-        print(f"Failed: {len(df[df.confidence == 0])}")
-        if not df.empty and 'parse_method' in df.columns:
-            print(f"Methods: {df['parse_method'].value_counts().to_dict()}")
+
+        print(f"\n--- Summary: {success} matched, {len(addresses) - success} failed, {verified} LLM verified ---")
         print(f"Results saved to {OUTPUT_FILE}")
 
     except Exception as e:
-        logger.error(f"Geocoding process failed: {e}")
+        logger.error("Geocoding process failed: %s", e)
         obs.ping_healthcheck("/fail")
         raise
+
 
 if __name__ == "__main__":
     asyncio.run(main())

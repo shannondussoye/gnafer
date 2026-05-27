@@ -10,8 +10,18 @@ dist/
 build/
 *.egg-info/
 
-# GNAF Data
-data/
+# GNAF Data (large — downloaded separately)
+data/GNAF_CORE.*
+
+# The authority PSV is small and required at runtime — NOT gitignored:
+# data/Authority_Code_STREET_TYPE_AUT_psv.psv
 
 # Local Geocoder Output
 geocoded.csv
+input.txt
+tbd/
+
+# Test / Coverage artifacts
+.coverage
+.pytest_cache/
+coverage.xml
