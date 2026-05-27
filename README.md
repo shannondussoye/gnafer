@@ -1,5 +1,7 @@
 # GNAFER: High-Performance Australian Geocoder
 
+[![CI](https://github.com/shannondussoye/gnafer/actions/workflows/ci.yml/badge.svg)](https://github.com/shannondussoye/gnafer/actions/workflows/ci.yml)
+
 GNAFER is a local-first geocoding pipeline for high-precision Australian address resolution. It matches free-text addresses against the full **G-NAF** dataset (15.8M addresses) using **pg_trgm trigram similarity** with structural re-scoring, then optionally verifies near-matches through a local LLM.
 
 ---
@@ -39,7 +41,7 @@ graph TD
 
 ### Why Trigrams + LLM?
 
-Trigram similarity is fast and handles typos and abbreviations well, but it can't reason about whether `"1704/45 Macquarie St"` and `"MERITON SUITES UNIT 1704 45 MACQUARIE STREET"` are the same place. The structural re-scoring catches most of these cases, but for the remaining ambiguous candidates (scoring 0.8–0.99), a local LLM provides a semantic verification layer that pushes match accuracy higher — without the high cost of a cloud API.
+Trigram similarity is fast and handles typos and abbreviations well, but it can't reason about whether `"1704/45 Macquarie St"` and `"MERITON SUITES UNIT 1704 45 MACQUARIE STREET"` are the same place. The structural re-scoring catches most of these cases, but for the remaining ambiguous candidates (scoring 0.8–0.99), a local LLM provides a semantic verification layer that pushes match accuracy higher — without the high cost of a cloud API. (For context, at 100,000 addresses, cloud APIs like Google Geocoding charge ~$500, whereas GNAFER runs completely free of charge after setup.)
 
 ### Examples
 
