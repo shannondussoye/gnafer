@@ -8,11 +8,11 @@ GNAFER is a local-first geocoding pipeline for high-precision Australian address
 
 ### The Problem
 
-Australian property and spatial data workflows depend on geocoding — converting a free-text address like `"1704/45 Macquarie St, Parramatta NSW 2150"` into a structured, validated record with latitude, longitude, and a canonical address PID.
+Australian property and spatial data workflows depend on geocoding — converting a free-text address like `"1704/45 Macquarie St, Parramatta NSW 2150"` into a structured, validated record with latitude, longitude, and a canonical address PID. This sounds straightforward, but doing it accurately at scale with real-world Australian addresses is deceptively hard.
 
 Existing solutions fall short:
 
-- **Cloud geocoding APIs** (Google, HERE, Mapbox) charge per request, leak data externally, and introduce latency. At scale — tens of thousands of addresses per batch — costs become prohibitive and privacy constraints may prevent sending addresses off-premise entirely.
+- **Cloud geocoding APIs** (Google, HERE, Mapbox) charge per request and introduce latency. At scale — batch processing tens or hundreds of thousands of addresses — costs quickly become prohibitive. Furthermore, generic global models can fail to handle region-specific Australian address formats (like lot numbers and range matches) accurately.
 - **Simple string matching** breaks down against real-world Australian addresses. Unit/lot formats (`3/45`, `UNIT 3 45`, `LOT 7`), building name prefixes (`MERITON SUITES 1704 45 MACQUARIE STREET`), 50+ street type abbreviations (`ST`, `RD`, `AVE`), and number ranges (`7-11`) mean a raw input string rarely matches a canonical G-NAF label cleanly.
 - **libpostal and other open-source parsers** can decompose addresses into components, but they don't match against authoritative data or return coordinates. They solve parsing, not geocoding.
 
@@ -39,7 +39,7 @@ graph TD
 
 ### Why Trigrams + LLM?
 
-Trigram similarity is fast and handles typos and abbreviations well, but it can't reason about whether `"1704/45 Macquarie St"` and `"MERITON SUITES UNIT 1704 45 MACQUARIE STREET"` are the same place. The structural re-scoring catches most of these cases, but for the remaining ambiguous candidates (scoring 0.8–0.99), a local LLM provides a semantic verification layer that pushes match accuracy higher — without the cost or privacy concerns of a cloud API.
+Trigram similarity is fast and handles typos and abbreviations well, but it can't reason about whether `"1704/45 Macquarie St"` and `"MERITON SUITES UNIT 1704 45 MACQUARIE STREET"` are the same place. The structural re-scoring catches most of these cases, but for the remaining ambiguous candidates (scoring 0.8–0.99), a local LLM provides a semantic verification layer that pushes match accuracy higher — without the high cost of a cloud API.
 
 ### Example
 
