@@ -14,7 +14,7 @@ Existing solutions fall short:
 
 - **Cloud geocoding APIs** (Google, HERE, Mapbox) charge per request and introduce latency. At scale — batch processing tens or hundreds of thousands of addresses — costs quickly become prohibitive. Furthermore, generic global models can fail to handle region-specific Australian address formats (like lot numbers and range matches) accurately.
 - **Simple string matching** breaks down against real-world Australian addresses. Unit/lot formats (`3/45`, `UNIT 3 45`, `LOT 7`), building name prefixes (`MERITON SUITES 1704 45 MACQUARIE STREET`), 50+ street type abbreviations (`ST`, `RD`, `AVE`), and number ranges (`7-11`) mean a raw input string rarely matches a canonical G-NAF label cleanly.
-- **Open-source parsers** (like libpostal) require complex C-compilation setups and still fall short on parsing non-standard Australian formats reliably. More importantly, they only solve parsing — they do not resolve addresses against authoritative records or return spatial coordinates.
+- **Open-source parsers** (like libpostal) require complex C-compilation setups and still fall short on parsing non-standard Australian formats reliably. Because they only solve parsing, any errors in their decomposition propagate downstream, making subsequent database lookups and coordinate resolution highly inaccurate.
 
 ### What GNAFER Does
 
