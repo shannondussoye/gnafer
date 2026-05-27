@@ -41,13 +41,20 @@ graph TD
 
 Trigram similarity is fast and handles typos and abbreviations well, but it can't reason about whether `"1704/45 Macquarie St"` and `"MERITON SUITES UNIT 1704 45 MACQUARIE STREET"` are the same place. The structural re-scoring catches most of these cases, but for the remaining ambiguous candidates (scoring 0.8–0.99), a local LLM provides a semantic verification layer that pushes match accuracy higher — without the high cost of a cloud API.
 
-### Example
+### Examples
 
+#### Example 1: Exact Match (Fast-path)
 **Input**: `1704/45 Macquarie Street, Parramatta, NSW 2150`
+- **Trigram match** finds the correct G-NAF record despite its `address_site_name` prefix inflating the label.
+- **Structural re-scoring** verifies `number_first=45`, `flat_number=1704` match the input.
+- **Result**: Score `1.0` (upgraded without LLM verification), PID `GANSW705645045`.
 
-- **Trigram match** finds the correct G-NAF record despite its `address_site_name` prefix inflating the label
-- **Structural re-scoring** verifies `number_first=45`, `flat_number=1704` match the input
-- **Result**: Score `1.0`, PID `GANSW705645045`
+#### Example 2: Typo Match (LLM Verified near-match)
+**Input**: `12/45 Maccquarie Street, Parramatta NSW 2150` *(contains typo "Maccquarie")*
+- **Trigram match** finds the record but street name matching fails perfect equality due to the spelling difference (Trigram Similarity score: `0.84`).
+- **Structural re-scoring** fails to upgrade to `1.0` due to the street name mismatch.
+- **LLM Verification** evaluates the candidate because `0.84 >= LLM_VERIFY_THRESHOLD` (0.8). It identifies the typo, verifies structural units match, confirms, and upgrades the score.
+- **Result**: Score `1.0` (upgraded via LLM), PID `GANSW705645045`.
 
 ---
 
