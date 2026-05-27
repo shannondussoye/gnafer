@@ -37,7 +37,7 @@ class LLMVerifier:
         model: str | None = None,
         host: str | None = None,
     ):
-        self._model: str = model if model is not None else settings.llm_verify_model
+        self._model: str = model if model is not None else settings.ollama_model
         self._host: str = host if host is not None else settings.ollama_host
         self._async_client = AsyncClient(host=self._host)
         self._sync_client = Client(host=self._host)

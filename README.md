@@ -222,7 +222,7 @@ All configuration is centralised via Pydantic Settings (`src/config.py`). Copy `
 | `TRIGRAM_WORKERS` | Parallel matching threads | `16` |
 | `STREET_TYPES_PSV` | Path to street type authority file | `data/Authority_Code_...psv` |
 | `LLM_VERIFY_THRESHOLD` | Min trigram score to trigger LLM verification | `0.8` |
-| `LLM_VERIFY_MODEL` | Ollama model for verification | `qwen2.5:latest` |
+| `OLLAMA_MODEL` | Ollama model for verification | `qwen2.5:1.5b` |
 | `LLM_BATCH_SIZE` | Concurrent LLM verifications per batch | `15` |
 | `JOB_TTL_SECONDS` | Seconds before completed jobs are evicted | `3600` |
 | `JOB_MAX_STORE_SIZE` | Max concurrent jobs in store | `1000` |
