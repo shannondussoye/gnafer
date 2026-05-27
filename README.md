@@ -66,7 +66,7 @@ Trigram similarity is fast and handles typos and abbreviations well, but it can'
 - **Parallel Batch Processing**: `ThreadedConnectionPool` + `ThreadPoolExecutor` for high-throughput batch matching
 - **FastAPI Microservice**: REST API with single and background-batch endpoints, request tracing via `X-Request-ID`
 - **Centralised Configuration**: Pydantic Settings — all env vars read once, validated at startup
-- **Observability**: Structured JSON logging, Logtail integration, Healthchecks.io heartbeat monitoring
+- **Observability**: Structured JSON logging, Logtail integration
 - **CI/CD**: GitHub Actions with `ruff` linting, `mypy` type checking, `pytest` with coverage reporting
 - **50+ Street Type Normalisation**: Expands abbreviations using the G-NAF Authority Code PSV
 
@@ -228,7 +228,6 @@ All configuration is centralised via Pydantic Settings (`src/config.py`). Copy `
 | `JOB_MAX_STORE_SIZE` | Max concurrent jobs in store | `1000` |
 | `MAX_BATCH_SIZE` | Max addresses per batch request | `10000` |
 | `LOGTAIL_TOKEN` | Remote structured logging token | *(optional)* |
-| `HEALTHCHECKS_UUID` | Heartbeat monitoring UUID | *(optional)* |
 | `GNAF_CSV_PATH` | Path to GNAF CORE PSV for ingestion | `data/GNAF_CORE.psv` |
 
 > ⚠️ Change `DB_USER`/`DB_PASSWORD` for any non-local deployment.

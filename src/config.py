@@ -34,7 +34,6 @@ class Settings(BaseSettings):
 
     # Observability
     logtail_token: str = ""
-    healthchecks_uuid: str = ""
 
     # Ingestion
     gnaf_csv_path: str = "data/GNAF_CORE.psv"

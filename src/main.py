@@ -30,12 +30,10 @@ async def main():
 
     run_id = str(uuid.uuid4())
     obs = GeocoderObservability(run_id=run_id)
-    obs.ping_healthcheck("/start")
 
     try:
         if not INPUT_FILE.exists():
             logger.error("Input file %s not found.", INPUT_FILE)
-            obs.ping_healthcheck("/fail")
             return
 
         with open(INPUT_FILE) as f:
@@ -106,14 +104,12 @@ async def main():
         verified = sum(1 for m in matches if m.llm_verified)
 
         obs.log_completion({"total": len(addresses), "success": success, "failed": len(addresses) - success})
-        obs.ping_healthcheck()
 
         print(f"\n--- Summary: {success} matched, {len(addresses) - success} failed, {verified} LLM verified ---")
         print(f"Results saved to {OUTPUT_FILE}")
 
     except Exception as e:
         logger.error("Geocoding process failed: %s", e)
-        obs.ping_healthcheck("/fail")
         raise
 
 

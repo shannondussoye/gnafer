@@ -2,7 +2,6 @@
 
 import logging
 import sys
-import urllib.request
 import uuid
 
 from logtail import LogtailHandler
@@ -14,7 +13,6 @@ from src.config import settings
 class GeocoderObservability:
     def __init__(self, run_id: str | None = None):
         self.logtail_token = settings.logtail_token
-        self.healthcheck_uuid = settings.healthchecks_uuid
         self.run_id = run_id or str(uuid.uuid4())
 
         # Setup Logger
@@ -52,13 +50,3 @@ class GeocoderObservability:
     def log_completion(self, stats: dict):
         """Log final batch statistics."""
         self.log_progress("Geocoding Batch Complete", stats)
-
-    def ping_healthcheck(self, suffix: str = ""):
-        """Ping Healthchecks.io. suffix can be '/fail' or '/start'."""
-        if not self.healthcheck_uuid or "your_uuid" in self.healthcheck_uuid:
-            return
-        try:
-            url = f"https://hc-ping.com/{self.healthcheck_uuid}{suffix}"
-            urllib.request.urlopen(url, timeout=10)
-        except (urllib.error.URLError, TimeoutError):
-            self.logger.warning("Healthchecks.io ping failed", extra={"run_id": self.run_id})

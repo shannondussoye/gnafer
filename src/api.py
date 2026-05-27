@@ -229,7 +229,6 @@ async def _process_batch(job_id: str, addresses: list[str]) -> None:
         jobs[job_id]["status"] = "completed"
         jobs[job_id]["completed_at"] = time.time()
         _obs.log_completion({"job_id": job_id, "total": len(addresses), "successful": jobs[job_id]["successful"]})
-        _obs.ping_healthcheck()
 
     except Exception:
         logger.exception("Batch processing failed for job %s", job_id)
