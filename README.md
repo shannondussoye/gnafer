@@ -51,10 +51,10 @@ Trigram similarity is fast and handles typos and abbreviations well, but it can'
 
 #### Example 2: Structural Variation (LLM Verified near-match)
 **Input**: `G04/7 - 11 Derowie Ave, Homebush, NSW 2140`
-- **Trigram match** finds the correct record `7-11 DEROWIE AV, HOMEBUSH NSW 2140`, but the score falls in the near-match bracket (e.g. `0.85`) due to the `G04/` unit prefix and spacing differences in the range (`7 - 11` vs `7-11`).
-- **Structural re-scoring** cannot guarantee a match because the database lacks a flat/unit entry for this unit number in the core record.
-- **LLM Verification** evaluates the candidate. It identifies `G04` as a unit within the `7-11 Derowie Ave` address block, verifies the range and street names match, and confirms the relationship.
-- **Result**: Score `1.0` (upgraded via LLM), PID `GANSW717325981`.
+- **Trigram match** finds the correct record `7-11 DEROWIE AV, HOMEBUSH NSW 2140` with a trigram score of **`0.8250`** (falling in the near-match bracket `[0.8, 1.0)` due to the `G04/` unit prefix and spaces around the range hyphen `7 - 11`).
+- **Structural re-scoring** cannot guarantee a match because the core record lacks the unit sub-field, keeping the score at `0.8250`.
+- **LLM Verification** evaluates the candidate. It identifies `G04` as a unit within the main `7-11 Derowie Ave` address block and confirms the match.
+- **Result**: Score `1.0` (upgraded via LLM), PID `GANSW719581671`.
 
 ---
 
