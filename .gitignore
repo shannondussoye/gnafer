@@ -17,8 +17,8 @@ data/GNAF_CORE.*
 # data/Authority_Code_STREET_TYPE_AUT_psv.psv
 
 # Local Geocoder Output
-geocoded.csv
-input.txt
+data/geocoded.csv
+data/input.txt
 tbd/
 
 # Test / Coverage artifacts

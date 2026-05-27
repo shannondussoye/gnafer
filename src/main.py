@@ -18,8 +18,8 @@ from src.trigram_matcher import TrigramAddressMatcher, get_connection_pool, load
 logger = logging.getLogger("gnafer")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-INPUT_FILE = PROJECT_ROOT / "input.txt"
-OUTPUT_FILE = PROJECT_ROOT / "geocoded.csv"
+INPUT_FILE = PROJECT_ROOT / "data" / "input.txt"
+OUTPUT_FILE = PROJECT_ROOT / "data" / "geocoded.csv"
 
 
 async def main():
