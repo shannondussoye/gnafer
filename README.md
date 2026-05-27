@@ -1,14 +1,30 @@
 # GNAFER: High-Performance Australian Geocoder
 
-GNAFER is a local-first geocoding pipeline for high-precision Australian address resolution. It matches free-text addresses against the full **GNAF CORE** dataset (15.8M rows) using **pg_trgm trigram similarity** with structural re-scoring, then optionally verifies near-matches through a local LLM.
+GNAFER is a local-first geocoding pipeline for high-precision Australian address resolution. It matches free-text addresses against the full **G-NAF** dataset (15.8M addresses) using **pg_trgm trigram similarity** with structural re-scoring, then optionally verifies near-matches through a local LLM.
 
 ---
 
-## 🗺️ The Challenge: Real-World Australian Geocoding
+## 📖 Overview
 
-Geocoding sounds straightforward until you're dealing with real-world Australian addresses. Irregular formats, building name prefixes, unit/lot variations, and street type abbreviations mean a raw address string rarely matches a canonical G-NAF label cleanly.
+### The Problem
 
-GNAFER solves this with a two-pass pipeline:
+Australian property and spatial data workflows depend on geocoding — converting a free-text address like `"1704/45 Macquarie St, Parramatta NSW 2150"` into a structured, validated record with latitude, longitude, and a canonical address PID.
+
+Existing solutions fall short:
+
+- **Cloud geocoding APIs** (Google, HERE, Mapbox) charge per request, leak data externally, and introduce latency. At scale — tens of thousands of addresses per batch — costs become prohibitive and privacy constraints may prevent sending addresses off-premise entirely.
+- **Simple string matching** breaks down against real-world Australian addresses. Unit/lot formats (`3/45`, `UNIT 3 45`, `LOT 7`), building name prefixes (`MERITON SUITES 1704 45 MACQUARIE STREET`), 50+ street type abbreviations (`ST`, `RD`, `AVE`), and number ranges (`7-11`) mean a raw input string rarely matches a canonical G-NAF label cleanly.
+- **libpostal and other open-source parsers** can decompose addresses into components, but they don't match against authoritative data or return coordinates. They solve parsing, not geocoding.
+
+### What GNAFER Does
+
+GNAFER is a **fully local, self-hosted geocoding engine** purpose-built for Australian addresses. It runs entirely on your own hardware — no API keys, no per-request charges, no data leaving your network.
+
+It works by loading the complete [G-NAF (Geocoded National Address File)](https://data.gov.au/data/dataset/geocoded-national-address-file-g-naf) into PostgreSQL, then using a two-pass pipeline to match input addresses:
+
+1. **Pass 1 — Trigram Matching**: PostgreSQL `pg_trgm` fuzzy similarity with a three-stage fallback (street-level → suburb+postcode → full label). Candidates are structurally re-scored by comparing house numbers, unit/flat numbers, lot numbers, and number ranges against the G-NAF components.
+
+2. **Pass 2 — LLM Verification**: Near-matches (score between the threshold and 1.0) are sent to a local Ollama model that answers a simple yes/no: *"Are these the same physical address?"* Confirmed matches are upgraded to 1.0.
 
 ```mermaid
 graph TD
@@ -21,11 +37,9 @@ graph TD
     D -->|"rejected"| E
 ```
 
-### How It Works
+### Why Trigrams + LLM?
 
-1. **Trigram Matching** — The input address is normalised and compared against G-NAF using PostgreSQL `pg_trgm` similarity. A three-stage fallback narrows candidates: street-level → suburb+postcode → full trigram. Each candidate is then structurally re-scored by comparing house numbers, unit/flat numbers, and lot numbers.
-
-2. **LLM Verification** — Candidates scoring between the threshold (default `0.8`) and `1.0` are sent to a local Ollama model. The LLM answers a simple yes/no: "Are these the same physical address?" Confirmed matches are upgraded to `1.0`.
+Trigram similarity is fast and handles typos and abbreviations well, but it can't reason about whether `"1704/45 Macquarie St"` and `"MERITON SUITES UNIT 1704 45 MACQUARIE STREET"` are the same place. The structural re-scoring catches most of these cases, but for the remaining ambiguous candidates (scoring 0.8–0.99), a local LLM provides a semantic verification layer that pushes match accuracy higher — without the cost or privacy concerns of a cloud API.
 
 ### Example
 
@@ -39,25 +53,30 @@ graph TD
 
 ## 🚀 Key Features
 
-- **Trigram Similarity Engine**: Three-stage fallback (street → suburb → full label) with `GREATEST()` to handle `address_site_name`/`building_name` prefixes
+- **Trigram Similarity Engine**: Three-stage fallback (street → suburb → full label) with `GREATEST()` to handle building name prefixes
 - **Structural Re-scoring**: Verifies house numbers, unit/flat numbers, lot numbers, and number ranges against G-NAF components
 - **LLM Verification**: Optional local LLM pass to confirm near-matches (configurable threshold)
 - **Parallel Batch Processing**: `ThreadedConnectionPool` + `ThreadPoolExecutor` for high-throughput batch matching
-- **FastAPI Microservice**: REST API with single and background-batch endpoints
-- **Observability**: Logtail structured logging + Healthchecks.io heartbeat monitoring
+- **FastAPI Microservice**: REST API with single and background-batch endpoints, request tracing via `X-Request-ID`
+- **Centralised Configuration**: Pydantic Settings — all env vars read once, validated at startup
+- **Observability**: Structured JSON logging, Logtail integration, Healthchecks.io heartbeat monitoring
+- **CI/CD**: GitHub Actions with `ruff` linting, `mypy` type checking, `pytest` with coverage reporting
 - **50+ Street Type Normalisation**: Expands abbreviations using the G-NAF Authority Code PSV
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Logic**: Python 3.12+ (FastAPI, Pydantic, Asyncio)
-- **Database**: PostgreSQL 16 + `pg_trgm` (Trigram Similarity)
-- **AI/LLM**: Ollama (verification only, not parsing)
-- **Package Manager**: `uv` (Deterministic dependencies)
-- **Containerization**: Docker & Docker Compose
-- **CI**: GitHub Actions (`pytest` on push)
-- **Testing**: `pytest` with mocked DB and LLM
+| Layer | Technology |
+|:---|:---|
+| **Language** | Python 3.12+ |
+| **API** | FastAPI, Pydantic, Asyncio |
+| **Database** | PostgreSQL 16 + `pg_trgm` |
+| **LLM** | Ollama (verification only) |
+| **Package Manager** | `uv` (deterministic lockfile) |
+| **Containers** | Docker & Docker Compose |
+| **CI** | GitHub Actions (lint → type check → test) |
+| **Testing** | `pytest` + `pytest-cov` (38 tests) |
 
 ---
 
@@ -71,14 +90,12 @@ graph TD
 
 ### 🏗️ Architecture Note
 
-GNAFER uses a **hybrid topology**: PostgreSQL runs in Docker, while the Python app and Ollama run on the host.
-
-Ollama runs on the host (not in Docker) to enable **direct GPU access** for LLM inference. Containerising Ollama requires the NVIDIA Container Toolkit and adds latency — keeping it on the host is simpler and faster.
+GNAFER uses a **hybrid topology**: PostgreSQL runs in Docker, while Ollama runs on the host for direct GPU access.
 
 | Component | Runs | Why |
 |:---|:---|:---|
 | **PostgreSQL** | Docker container | Isolated, reproducible, easy to reset |
-| **Python app** | Host (via `uv run`) | Direct access to filesystem and GPU-hosted Ollama |
+| **Python app** | Host (via `uv run`) or Docker | Flexible — see `docker-compose.yml` |
 | **Ollama** | Host | Needs GPU — `qwen2.5:1.5b` requires ~2GB VRAM |
 
 #### Ollama Model Requirements
@@ -93,23 +110,37 @@ Ollama runs on the host (not in Docker) to enable **direct GPU access** for LLM 
 ### Quick Start
 
 ```bash
-# 1. Install dependencies
+# 1. Clone and install dependencies
+git clone git@github.com:shannondussoye/gnafer.git && cd gnafer
 make setup
 
-# 2. Start PostgreSQL
+# 2. Copy and configure environment
+cp .env.example .env
+
+# 3. Start PostgreSQL
 make start
 
-# 3. Pull the LLM model
-ollama pull qwen2.5:latest
+# 4. Pull the LLM model
+ollama pull qwen2.5:1.5b
 
-# 4. Place GNAF_CORE.psv in data/ and ingest
+# 5. Download GNAF CORE, place in data/, and ingest
 make db-init
 
-# 5. Check all components are up
+# 6. Check all components are up
 make status
 ```
 
-> ⚠️ Data ingestion processes ~15.8 million rows. Monitor with `make db-status`.
+> ⚠️ Data ingestion processes ~15.8 million rows and takes 1–2 hours. Monitor progress with `make db-status`.
+
+### Docker Deployment
+
+To run the full stack (API + database) in Docker:
+
+```bash
+docker compose up -d
+```
+
+The API will be available at `http://localhost:8000`. The app container depends on the database being healthy before starting.
 
 ---
 
@@ -141,6 +172,16 @@ curl -X POST http://localhost:8000/geocode/batch \
 
 Returns a `job_id`. Monitor via `GET /jobs/{job_id}`, fetch results via `GET /jobs/{job_id}/results`.
 
+> Batch requests are limited to 10,000 addresses. Completed jobs expire after 1 hour (configurable via `JOB_TTL_SECONDS`).
+
+#### Health Check
+
+**GET** `/health` — verifies database connectivity
+
+```bash
+curl http://localhost:8000/health
+```
+
 ### CLI Batch Processing
 
 Create an `input.txt` file with one address per line, then:
@@ -149,7 +190,7 @@ Create an `input.txt` file with one address per line, then:
 make run
 ```
 
-Outputs `geocoded.csv` with match scores, PIDs, and LLM verification status.
+Outputs `geocoded.csv` with match scores, PIDs, coordinates, and LLM verification status.
 
 ### Testing
 
@@ -161,6 +202,8 @@ make test
 
 ## 📋 Environment Configuration (`.env`)
 
+All configuration is centralised via Pydantic Settings (`src/config.py`). Copy `.env.example` to `.env` and adjust as needed:
+
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `DB_USER` | PostgreSQL user | `postgres` |
@@ -170,14 +213,47 @@ make test
 | `DB_PORT` | Database port | `5432` |
 | `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
 | `TRIGRAM_WORKERS` | Parallel matching threads | `16` |
-| `STREET_TYPES_PSV` | Path to street type authority file | `data/Authority_Code_STREET_TYPE_AUT_psv.psv` |
-| `LLM_VERIFY_THRESHOLD` | Minimum trigram score to trigger LLM verification | `0.8` |
-| `LLM_VERIFY_MODEL` | Ollama model for verification | `qwen2.5:1.5b` |
+| `STREET_TYPES_PSV` | Path to street type authority file | `data/Authority_Code_...psv` |
+| `LLM_VERIFY_THRESHOLD` | Min trigram score to trigger LLM verification | `0.8` |
+| `LLM_VERIFY_MODEL` | Ollama model for verification | `qwen2.5:latest` |
+| `LLM_BATCH_SIZE` | Concurrent LLM verifications per batch | `15` |
+| `JOB_TTL_SECONDS` | Seconds before completed jobs are evicted | `3600` |
+| `JOB_MAX_STORE_SIZE` | Max concurrent jobs in store | `1000` |
+| `MAX_BATCH_SIZE` | Max addresses per batch request | `10000` |
 | `LOGTAIL_TOKEN` | Remote structured logging token | *(optional)* |
 | `HEALTHCHECKS_UUID` | Heartbeat monitoring UUID | *(optional)* |
 | `GNAF_CSV_PATH` | Path to GNAF CORE PSV for ingestion | `data/GNAF_CORE.psv` |
 
 > ⚠️ Change `DB_USER`/`DB_PASSWORD` for any non-local deployment.
+
+---
+
+## 📁 Project Structure
+
+```
+gnafer/
+├── src/
+│   ├── config.py           # Centralised Pydantic Settings
+│   ├── api.py              # FastAPI endpoints + middleware
+│   ├── trigram_matcher.py   # Core matching engine
+│   ├── llm_verifier.py     # Ollama LLM verification
+│   ├── models.py           # Pydantic data models
+│   ├── observability.py    # Structured logging + health pings
+│   ├── ingest.py           # GNAF data loader
+│   └── main.py             # CLI batch pipeline
+├── tests/
+│   ├── test_api.py             # API endpoint tests
+│   ├── test_matcher.py         # Pure function unit tests
+│   ├── test_rescore.py         # Re-scoring logic tests
+│   ├── test_match_integration.py # Matcher integration tests
+│   └── test_parser.py         # LLM response parser tests
+├── sql/schema.sql          # Idempotent database schema
+├── data/                   # GNAF data + authority files
+├── Dockerfile              # App container
+├── docker-compose.yml      # DB + App stack
+├── Makefile                # Development commands
+└── pyproject.toml          # Dependencies + tool config
+```
 
 ---
 
