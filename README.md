@@ -49,12 +49,12 @@ Trigram similarity is fast and handles typos and abbreviations well, but it can'
 - **Structural re-scoring** verifies `number_first=45`, `flat_number=1704` match the input.
 - **Result**: Score `1.0` (upgraded without LLM verification), PID `GANSW705645045`.
 
-#### Example 2: Typo Match (LLM Verified near-match)
-**Input**: `12/45 Maccquarie Street, Parramatta NSW 2150` *(contains typo "Maccquarie")*
-- **Trigram match** finds the record but street name matching fails perfect equality due to the spelling difference (Trigram Similarity score: `0.84`).
-- **Structural re-scoring** fails to upgrade to `1.0` due to the street name mismatch.
-- **LLM Verification** evaluates the candidate because `0.84 >= LLM_VERIFY_THRESHOLD` (0.8). It identifies the typo, verifies structural units match, confirms, and upgrades the score.
-- **Result**: Score `1.0` (upgraded via LLM), PID `GANSW705645045`.
+#### Example 2: Structural Variation (LLM Verified near-match)
+**Input**: `G04/7 - 11 Derowie Ave, Homebush, NSW 2140`
+- **Trigram match** finds the correct record `7-11 DEROWIE AV, HOMEBUSH NSW 2140`, but the score falls in the near-match bracket (e.g. `0.85`) due to the `G04/` unit prefix and spacing differences in the range (`7 - 11` vs `7-11`).
+- **Structural re-scoring** cannot guarantee a match because the database lacks a flat/unit entry for this unit number in the core record.
+- **LLM Verification** evaluates the candidate. It identifies `G04` as a unit within the `7-11 Derowie Ave` address block, verifies the range and street names match, and confirms the relationship.
+- **Result**: Score `1.0` (upgraded via LLM), PID `GANSW717325981`.
 
 ---
 
