@@ -323,6 +323,8 @@ Outputs `geocoded.csv` with match scores, PIDs, coordinates, and LLM verificatio
 
 ### Testing
 
+Run the test suite using `make test`. The tests utilize mocked database connection pools and cursor interfaces (simulating query results), ensuring the entire suite is self-contained and runs instantly (<1s) in local or CI environments without needing a live PostgreSQL database:
+
 ```bash
 make test
 ```
