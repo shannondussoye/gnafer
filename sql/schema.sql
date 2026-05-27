@@ -1,11 +1,9 @@
--- GNAF Geocoder Schema - Final TEXT-First Version
--- Maximum robustness for large-scale ingestion
+-- GNAF Geocoder Schema
+-- Safe to re-run: uses IF NOT EXISTS throughout
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-DROP TABLE IF EXISTS gnaf_core;
-
-CREATE TABLE gnaf_core (
+CREATE TABLE IF NOT EXISTS gnaf_core (
     address_detail_pid TEXT PRIMARY KEY,
     date_created DATE,
     address_label TEXT,
@@ -21,7 +19,7 @@ CREATE TABLE gnaf_core (
     street_name TEXT,
     street_type TEXT,
     street_suffix TEXT,
-    suburb_name TEXT, 
+    suburb_name TEXT,
     state TEXT,
     postcode TEXT,
     legal_parcel_id TEXT,
@@ -36,11 +34,17 @@ CREATE TABLE gnaf_core (
 );
 
 -- Performance Indexes
-CREATE INDEX idx_gnaf_postcode ON gnaf_core(postcode);
-CREATE INDEX idx_gnaf_suburb ON gnaf_core(suburb_name);
-CREATE INDEX idx_gnaf_street ON gnaf_core(street_name);
-CREATE INDEX idx_gnaf_prec_search ON gnaf_core(street_name, suburb_name, number_first);
+CREATE INDEX IF NOT EXISTS idx_gnaf_postcode ON gnaf_core(postcode);
+CREATE INDEX IF NOT EXISTS idx_gnaf_suburb ON gnaf_core(suburb_name);
+CREATE INDEX IF NOT EXISTS idx_gnaf_street ON gnaf_core(street_name);
+CREATE INDEX IF NOT EXISTS idx_gnaf_prec_search ON gnaf_core(street_name, suburb_name, number_first);
+
+-- Composite index for Stage 0 queries (postcode + suburb_name + street_name)
+CREATE INDEX IF NOT EXISTS idx_gnaf_stage0_composite ON gnaf_core(postcode, suburb_name, street_name);
 
 -- Trigram Indexes for Fuzzy Matching
-CREATE INDEX idx_gnaf_street_trgm ON gnaf_core USING gin (street_name gin_trgm_ops);
-CREATE INDEX idx_gnaf_suburb_trgm ON gnaf_core USING gin (suburb_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_gnaf_street_trgm ON gnaf_core USING gin (street_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_gnaf_suburb_trgm ON gnaf_core USING gin (suburb_name gin_trgm_ops);
+
+-- Trigram index on address_label for Stage 2 fallback (was missing — caused full seq scans)
+CREATE INDEX IF NOT EXISTS idx_gnaf_label_trgm ON gnaf_core USING gin (address_label gin_trgm_ops);

@@ -1,4 +1,4 @@
-.PHONY: help setup start stop status db-init db-status test run clean
+.PHONY: help setup start stop status db-init db-status test run clean serve wait-db
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -12,12 +12,19 @@ start: ## Start the database container
 stop: ## Stop the database container
 	docker compose down
 
+wait-db: ## Wait for the database to become healthy
+	@echo "Waiting for database..."
+	@until docker exec gnafer-db pg_isready -U postgres -d gnafer > /dev/null 2>&1; do \
+		sleep 1; \
+	done
+	@echo "Database is ready."
+
 status: ## Show status of all components
 	@docker compose ps
 	@echo "--- Ollama ---"
 	@curl -sf http://localhost:11434/api/tags > /dev/null && echo "  Ollama: UP" || echo "  Ollama: DOWN"
 
-db-init: ## Initialise the database schema and load GNAF data
+db-init: wait-db ## Initialise the database schema and load GNAF data
 	uv run python src/ingest.py
 
 db-status: ## Show database ingestion status
@@ -29,10 +36,10 @@ db-status: ## Show database ingestion status
 test: ## Run unit tests
 	uv run pytest tests/ -v --tb=short
 
-run: ## Run the geocoding pipeline
+run: wait-db ## Run the geocoding pipeline
 	uv run python src/main.py
 
-serve: ## Launch the FastAPI server
+serve: wait-db ## Launch the FastAPI server
 	uv run uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
 
 clean: ## Clean up temporary files

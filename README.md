@@ -1,152 +1,161 @@
 # GNAFER: High-Performance Australian Geocoder
 
-GNAFER is a local-first geocoding pipeline designed for high-precision Australian address resolution. It leverages the full **GNAF CORE** dataset (15.8M rows) combined with a hybrid **Two-Pass matching engine** (Regex + LocalLLM) to achieve sub-unit accuracy at scale.
+GNAFER is a local-first geocoding pipeline for high-precision Australian address resolution. It matches free-text addresses against the full **GNAF CORE** dataset (15.8M rows) using **pg_trgm trigram similarity** with structural re-scoring, then optionally verifies near-matches through a local LLM.
 
 ---
 
 ## 🗺️ The Challenge: Real-World Australian Geocoding
 
-Geocoding sounds straightforward until you're dealing with real-world Australian addresses. Irregular formats, and inconsistent inputs mean a raw address string often fails before it ever hits a traditional geocoding API.
+Geocoding sounds straightforward until you're dealing with real-world Australian addresses. Irregular formats, building name prefixes, unit/lot variations, and street type abbreviations mean a raw address string rarely matches a canonical G-NAF label cleanly.
 
-GNAFER was built to solve this by treating address standardisation as a sequential pipeline:
+GNAFER solves this with a two-pass pipeline:
 
 ```mermaid
 graph TD
-    A[Input Address String] --> B{Pass 1: Regex Sprint}
-    B -- "Success (Structured)" --> C[GNAF Database Match]
-    B -- "Fail (Messy/Complex)" --> D{Pass 2: Local LLM}
-    D -- "Success (Structured)" --> C
-    D -- "Fail" --> E[Geocoding Failed]
-    C --> F[Precision Lat/Long + Mesh Block]
+    A[Input Address] --> B[Trigram Matcher]
+    B --> C{Score >= threshold?}
+    C -->|"score >= 0.8"| D{LLM Verification}
+    C -->|"score < 0.8"| E[Keep trigram score]
+    C -->|"score = 1.0"| F[Exact match — skip LLM]
+    D -->|"confirmed"| G["Upgrade to 1.0"]
+    D -->|"rejected"| E
 ```
 
-### 📍 Example 1: The Regex Sprint (Fast & Deterministic)
-**Input**: `"1/255 George Street, Sydney"`
-- **Action**: Regex identifies `Unit 1`, `Number 255`, `Street GEORGE`, `Type ST`.
-- **Structured Output**:
-  ```json
-  { "unit": "1", "number": "255", "street": "GEORGE", "street_type": "ST", "suburb": "SYDNEY" }
-  ```
-- **Result**: Instant match in the GNAF database (~5ms).
+### How It Works
 
-### 🤖 Example 2: The AI Fallback (Robust & Intelligent)
-**Input**: `"Level 5, 10 Main Rd, Melbourne"`
-- **Action**: Regex fails to handle "Level 5" prefix.
-- **AI Refinement**: Local `qwen2.5:1.5b` identifies the components while ignoring the non-essential floor/level data.
-- **Structured Output**:
-  ```json
-  {
-    "unit": "",
-    "number": "10",
-    "street": "Main",
-    "street_type": "RD",
-    "suburb": "Melbourne",
-    "state": "VIC",
-    "postcode": "3000"
-  }
-  ```
-- **Result**: Successful match that would have otherwise failed.
+1. **Trigram Matching** — The input address is normalised and compared against G-NAF using PostgreSQL `pg_trgm` similarity. A three-stage fallback narrows candidates: street-level → suburb+postcode → full trigram. Each candidate is then structurally re-scored by comparing house numbers, unit/flat numbers, and lot numbers.
 
-The result is a reliable geocoder that degrades gracefully rather than failing silently—designed specifically for Australian spatial data, property datasets, and high-volume address matching.
+2. **LLM Verification** — Candidates scoring between the threshold (default `0.8`) and `1.0` are sent to a local Ollama model. The LLM answers a simple yes/no: "Are these the same physical address?" Confirmed matches are upgraded to `1.0`.
+
+### Example
+
+**Input**: `1704/45 Macquarie Street, Parramatta, NSW 2150`
+
+- **Trigram match** finds the correct G-NAF record despite its `address_site_name` prefix inflating the label
+- **Structural re-scoring** verifies `number_first=45`, `flat_number=1704` match the input
+- **Result**: Score `1.0`, PID `GANSW705645045`
 
 ---
 
 ## 🚀 Key Features
 
-- **Sub-Unit Precision**: Hierarchical matching logic that resolves down to Unit/Shop/Level (e.g., "Unit 5, Level 2...").
-- **Mesh Block (mb_code) Support**: Returns the ABS Mesh Block code for every successful match, enabling direct linkage to Census data.
-- **Two-Pass Hybrid Engine**:
-    - **Pass 1 (Regex Sprint)**: Instant, rule-based geocoding for 80%+ of standard addresses (~2,500 rows/sec).
-    - **Pass 2 (Async LLM Refinement)**: Concurrent AI refinement using `qwen2.5:1.5b` for complex or messy addresses.
-- **FastAPI Microservice**: Integrated REST API with single and background-batch endpoints.
-- **Observability Stack**:
-    - **Logtail**: Remote structured JSON logging and session tracking.
-    - **Healthchecks.io**: Heartbeat monitoring and crash alerting (with ntfy integration).
-- **Type-Aware Matching**: Intelligent handling of 50+ Australian street types and abbreviations (e.g., "Pde", "Cct", "St").
-- **Production Hardened**: Pre-configured resource limits, Docker log rotation, and automated test suite.
+- **Trigram Similarity Engine**: Three-stage fallback (street → suburb → full label) with `GREATEST()` to handle `address_site_name`/`building_name` prefixes
+- **Structural Re-scoring**: Verifies house numbers, unit/flat numbers, lot numbers, and number ranges against G-NAF components
+- **LLM Verification**: Optional local LLM pass to confirm near-matches (configurable threshold)
+- **Parallel Batch Processing**: `ThreadedConnectionPool` + `ThreadPoolExecutor` for high-throughput batch matching
+- **FastAPI Microservice**: REST API with single and background-batch endpoints
+- **Observability**: Logtail structured logging + Healthchecks.io heartbeat monitoring
+- **50+ Street Type Normalisation**: Expands abbreviations using the G-NAF Authority Code PSV
 
 ---
 
 ## 🛠️ Tech Stack
 
 - **Logic**: Python 3.12+ (FastAPI, Pydantic, Asyncio)
-- **Database**: PostgreSQL 16 + `pg_trgm` (Fuzzy Matching)
-- **AI/LLM**: Ollama (`qwen2.5:1.5b`)
+- **Database**: PostgreSQL 16 + `pg_trgm` (Trigram Similarity)
+- **AI/LLM**: Ollama (verification only, not parsing)
 - **Package Manager**: `uv` (Deterministic dependencies)
 - **Containerization**: Docker & Docker Compose
-- **Testing**: `pytest` with `httpx` (API contract testing)
+- **CI**: GitHub Actions (`pytest` on push)
+- **Testing**: `pytest` with mocked DB and LLM
 
 ---
 
 ## 📦 Setup & Installation
 
-### 1. Prerequisites
+### Prerequisites
 - Docker & Docker Compose
-- [Ollama](https://ollama.com/) (Running on the host for GPU acceleration)
+- [Ollama](https://ollama.com/) running on the host (see [Architecture Note](#-architecture-note) below)
 - Python 3.12+
+- [uv](https://docs.astral.sh/uv/) package manager
 
-### 2. Infrastructure
+### 🏗️ Architecture Note
+
+GNAFER uses a **hybrid topology**: PostgreSQL runs in Docker, while the Python app and Ollama run on the host.
+
+Ollama runs on the host (not in Docker) to enable **direct GPU access** for LLM inference. Containerising Ollama requires the NVIDIA Container Toolkit and adds latency — keeping it on the host is simpler and faster.
+
+| Component | Runs | Why |
+|:---|:---|:---|
+| **PostgreSQL** | Docker container | Isolated, reproducible, easy to reset |
+| **Python app** | Host (via `uv run`) | Direct access to filesystem and GPU-hosted Ollama |
+| **Ollama** | Host | Needs GPU — `qwen2.5:1.5b` requires ~2GB VRAM |
+
+#### Ollama Model Requirements
+
+| Model | VRAM | Speed | Recommended For |
+|:---|:---|:---|:---|
+| `qwen2.5:1.5b` | ~2 GB | ~50 tokens/s | Default — fast batch verification |
+| `qwen2.5:latest` (7B) | ~5 GB | ~15 tokens/s | Higher accuracy, slower throughput |
+
+> 💡 If Ollama is unavailable, the pipeline **degrades gracefully** — trigram matching still works, only LLM verification is skipped.
+
+### Quick Start
+
 ```bash
-# Install dependencies (including dev tools)
+# 1. Install dependencies
 make setup
 
-# Start the PostgreSQL container
+# 2. Start PostgreSQL
 make start
 
-# Pull the required LLM model
-ollama pull qwen2.5:1.5b
+# 3. Pull the LLM model
+ollama pull qwen2.5:latest
 
-# Check status of components
+# 4. Place GNAF_CORE.psv in data/ and ingest
+make db-init
+
+# 5. Check all components are up
 make status
 ```
 
-### 3. Data Ingestion
-Place your `GNAF_CORE.psv` file in the `data/` directory and run:
-```bash
-make db-init
-```
-*Note: This processes ~15.8 million rows. Use `make db-status` to monitor progress.*
+> ⚠️ Data ingestion processes ~15.8 million rows. Monitor with `make db-status`.
 
 ---
 
 ## 🖥️ Usage
 
-### REST API (Recommended for Microservices)
-Launch the server:
+### REST API
+
 ```bash
 make serve
 ```
 
-#### Single Address Geocode
+#### Single Address
+
 **POST** `/geocode`
 ```bash
-curl -X POST http://localhost:8000/geocode?min_confidence=0.8 \
+curl -X POST http://localhost:8000/geocode \
      -H "Content-Type: application/json" \
-     -d '{"address": "42/7 Weston St, Rosehill 2142"}'
+     -d '{"address": "42/7 Weston St, Rosehill, NSW 2142"}'
 ```
-*Filter low-quality matches using the optional `min_confidence` parameter.*
 
 #### Batch Job (Background)
+
 **POST** `/geocode/batch`
 ```bash
 curl -X POST http://localhost:8000/geocode/batch \
      -H "Content-Type: application/json" \
-     -d '{"addresses": ["1 George St, Sydney", "497 New South Head Rd, Double Bay"]}'
+     -d '{"addresses": ["1 George St, Sydney, NSW 2000", "497 New South Head Rd, Double Bay, NSW 2028"]}'
 ```
-*Returns a `job_id`. Monitor progress via `GET /jobs/{job_id}` or stream partial results via `GET /jobs/{job_id}/results`.*
+
+Returns a `job_id`. Monitor via `GET /jobs/{job_id}`, fetch results via `GET /jobs/{job_id}/results`.
 
 ### CLI Batch Processing
-For large file-based workloads:
+
+Create an `input.txt` file with one address per line, then:
+
 ```bash
 make run
 ```
-*Processes `input.txt` and generates `geocoded.csv`. Heartbeat signals are sent to Healthchecks.io.*
 
-### Automated Testing
+Outputs `geocoded.csv` with match scores, PIDs, and LLM verification status.
+
+### Testing
+
 ```bash
 make test
 ```
-*Runs the full suite of parser, matcher, and API contract tests.*
 
 ---
 
@@ -154,12 +163,24 @@ make test
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `DB_NAME` | PostgreSQL Database Name | `gnafer` |
-| `OLLAMA_MODEL` | AI Model for Refinement | `qwen2.5:1.5b` |
-| `LOGTAIL_TOKEN` | Remote Logging Token | (Optional) |
-| `HEALTHCHECKS_UUID` | Heartbeat Monitoring UUID | (Optional) |
+| `DB_USER` | PostgreSQL user | `postgres` |
+| `DB_PASSWORD` | PostgreSQL password | `postgres` |
+| `DB_NAME` | Database name | `gnafer` |
+| `DB_HOST` | Database host | `localhost` |
+| `DB_PORT` | Database port | `5432` |
+| `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
+| `TRIGRAM_WORKERS` | Parallel matching threads | `16` |
+| `STREET_TYPES_PSV` | Path to street type authority file | `data/Authority_Code_STREET_TYPE_AUT_psv.psv` |
+| `LLM_VERIFY_THRESHOLD` | Minimum trigram score to trigger LLM verification | `0.8` |
+| `LLM_VERIFY_MODEL` | Ollama model for verification | `qwen2.5:1.5b` |
+| `LOGTAIL_TOKEN` | Remote structured logging token | *(optional)* |
+| `HEALTHCHECKS_UUID` | Heartbeat monitoring UUID | *(optional)* |
+| `GNAF_CSV_PATH` | Path to GNAF CORE PSV for ingestion | `data/GNAF_CORE.psv` |
+
+> ⚠️ Change `DB_USER`/`DB_PASSWORD` for any non-local deployment.
 
 ---
 
 ## 🛡️ License
+
 MIT License. Created for high-performance Australian spatial data workloads.
