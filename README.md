@@ -103,14 +103,14 @@ GNAFER uses a **hybrid topology**: PostgreSQL runs in Docker, while Ollama runs 
 |:---|:---|:---|
 | **PostgreSQL** | Docker container | Isolated, reproducible, easy to reset |
 | **Python app** | Host (via `uv run`) or Docker | Flexible — see `docker-compose.yml` |
-| **Ollama** | Host | Needs GPU — `qwen2.5:1.5b` requires ~2GB VRAM |
+| **Ollama** | Host | Needs GPU — `qwen2.5:latest` requires ~5GB VRAM |
 
 #### Ollama Model Requirements
 
 | Model | VRAM | Speed | Recommended For |
 |:---|:---|:---|:---|
-| `qwen2.5:1.5b` | ~2 GB | ~50 tokens/s | Default — fast batch verification |
-| `qwen2.5:latest` (7B) | ~5 GB | ~15 tokens/s | Higher accuracy, slower throughput |
+| `qwen2.5:latest` (7B) | ~5 GB | ~15 tokens/s | Default — high accuracy |
+| `qwen2.5:1.5b` | ~2 GB | ~50 tokens/s | Low VRAM fallback / fast batching |
 
 > 💡 If Ollama is unavailable, the pipeline **degrades gracefully** — trigram matching still works, only LLM verification is skipped.
 
@@ -128,16 +128,20 @@ cp .env.example .env
 make start
 
 # 4. Pull the LLM model
-ollama pull qwen2.5:1.5b
+ollama pull qwen2.5:latest
 
 # 5. Download GNAF CORE, place in data/, and ingest
 make db-init
 
 # 6. Check all components are up
 make status
+
+# 7. Create input.txt (one address per line) and run the pipeline
+echo "G04/7 - 11 Derowie Ave, Homebush, NSW 2140" > input.txt
+make run
 ```
 
-> ⚠️ Data ingestion processes ~15.8 million rows and takes 1–2 hours. Monitor progress with `make db-status`.
+> ⚠️ Data ingestion processes ~15.8 million rows and takes 1–2 hours. Monitor progress with `make db-status`. Output from step 7 is exported to `geocoded.csv`.
 
 ### Docker Deployment
 
