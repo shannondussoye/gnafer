@@ -141,12 +141,12 @@ make db-init
 # 6. Check all components are up
 make status
 
-# 7. Create input.txt (one address per line) and run the pipeline
-echo "G04/7 - 11 Derowie Ave, Homebush, NSW 2140" > input.txt
+# 7. Create input.txt (one address per line) in data/ and run the pipeline
+echo "G04/7 - 11 Derowie Ave, Homebush, NSW 2140" > data/input.txt
 make run
 ```
 
-> ⚠️ Data ingestion processes ~15.8 million rows and takes 1–2 hours. Monitor progress with `make db-status`. Output from step 7 is exported to `geocoded.csv`.
+> ⚠️ Data ingestion processes ~15.8 million rows and takes 1–2 hours. Monitor progress with `make db-status`. Output from step 7 is exported to `data/geocoded.csv`.
 
 ### Docker Deployment
 
@@ -163,14 +163,14 @@ The API will be available at `http://localhost:8000`. The app container depends 
 Since `docker-compose.yml` mounts the project root directory as a volume, you can run the CLI batch pipeline inside the container and exchange files with the host system:
 
 ```bash
-# 1. Create input.txt on your host machine
-echo "G04/7 - 11 Derowie Ave, Homebush, NSW 2140" > input.txt
+# 1. Create data/input.txt on your host machine
+echo "G04/7 - 11 Derowie Ave, Homebush, NSW 2140" > data/input.txt
 
 # 2. Run the pipeline inside the container
 docker compose run --rm app uv run python src/main.py
 
-# 3. Results will be saved to geocoded.csv on your host machine
-cat geocoded.csv
+# 3. Results will be saved to data/geocoded.csv on your host machine
+cat data/geocoded.csv
 ```
 
 ---
@@ -315,13 +315,13 @@ curl http://localhost:8000/jobs/8c562da9-67a0-4815-a637-4579a741d714/results
 
 ### CLI Batch Processing
 
-Create an `input.txt` file with one address per line, then:
+Create a `data/input.txt` file with one address per line, then:
 
 ```bash
 make run
 ```
 
-Outputs `geocoded.csv` with match scores, PIDs, coordinates, and LLM verification status.
+Outputs `data/geocoded.csv` with match scores, PIDs, coordinates, and LLM verification status.
 
 ### Testing
 

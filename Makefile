@@ -44,4 +44,4 @@ serve: wait-db ## Launch the FastAPI server
 
 clean: ## Clean up temporary files
 	rm -rf __pycache__ src/__pycache__ tests/__pycache__
-	rm -f geocoded.csv
+	rm -f data/geocoded.csv
