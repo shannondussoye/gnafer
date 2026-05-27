@@ -24,7 +24,7 @@ It works by loading the complete [G-NAF (Geocoded National Address File)](https:
 
 1. **Pass 1 — Trigram Matching**: PostgreSQL `pg_trgm` fuzzy similarity with a three-stage fallback (street-level → suburb+postcode → full label). Candidates are structurally re-scored by comparing house numbers, unit/flat numbers, lot numbers, and number ranges against the G-NAF components.
 
-2. **Pass 2 — LLM Verification**: Near-matches (score between the threshold and 1.0) are sent to a local Ollama model that answers a simple yes/no: *"Are these the same physical address?"* Confirmed matches are upgraded to 1.0.
+2. **Pass 2 — LLM Verification**: Near-matches (score between the threshold and 1.0, defaulting to `0.8` as configured by `LLM_VERIFY_THRESHOLD` in `.env`) are sent to a local Ollama model that answers a simple yes/no: *"Are these the same physical address?"* Confirmed matches are upgraded to 1.0.
 
 ```mermaid
 graph TD
