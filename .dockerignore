@@ -8,7 +8,7 @@ __pycache__/
 dist/
 build/
 data/GNAF_CORE.*
-geocoded.csv
-input.txt
+geocoded_old.csv
+input_old.txt
 tbd/
 .pytest_cache/

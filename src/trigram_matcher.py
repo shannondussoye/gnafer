@@ -122,6 +122,13 @@ def is_present(val):
     return val is not None and str(val).strip() not in ("", "NaN", "nan", "None")
 
 
+def _expand_word_abbreviation(words, idx, abbreviations):
+    """Expand abbreviation at index `idx` in word list `words` in-place."""
+    w = words[idx].rstrip(",")
+    if w in abbreviations:
+        words[idx] = abbreviations[w]
+
+
 def load_street_types(psv_path):
     """Load street type CODE → NAME mapping from the G-NAF authority PSV file."""
     mapping: dict[str, str] = {}
@@ -166,9 +173,7 @@ def normalize_address(address, postcode, suburb, abbreviations):
             words = street_part.split()
             if words:
                 target_idx = -2 if (words[-1] in STREET_SUFFIXES and len(words) >= 2) else -1
-                target_word = words[target_idx].rstrip(",")
-                if target_word in abbreviations:
-                    words[target_idx] = abbreviations[target_word]
+                _expand_word_abbreviation(words, target_idx, abbreviations)
                 street_part = " ".join(words)
 
             return f"{street_part}, {remaining_part}"
@@ -179,9 +184,7 @@ def normalize_address(address, postcode, suburb, abbreviations):
     if words:
         for idx in [-1, -2]:
             if abs(idx) <= len(words):
-                w = words[idx].rstrip(",")
-                if w in abbreviations:
-                    words[idx] = abbreviations[w]
+                _expand_word_abbreviation(words, idx, abbreviations)
         addr_upper = " ".join(words)
     return addr_upper
 
@@ -189,10 +192,8 @@ def normalize_address(address, postcode, suburb, abbreviations):
 def normalize_street_words(text, abbreviations):
     """Expand all street type abbreviations in *text*."""
     words = text.upper().split()
-    for i, w in enumerate(words):
-        w_clean = w.rstrip(",")
-        if w_clean in abbreviations:
-            words[i] = abbreviations[w_clean]
+    for i in range(len(words)):
+        _expand_word_abbreviation(words, i, abbreviations)
     return " ".join(words)
 
 
@@ -251,6 +252,42 @@ def extract_street_name(address, postcode, suburb, abbreviations, _abbreviation_
 # ---------------------------------------------------------------------------
 
 
+def _strip_site_or_building_prefix(label_upper, site_name, building_name) -> tuple[int, str]:
+    """Strip address_site_name or building_name prefix from G-NAF label.
+
+    Returns (prefix_offset, clean_label).
+    """
+    site_upper = site_name.upper() if is_present(site_name) else ""
+    bldg_upper = building_name.upper() if is_present(building_name) else ""
+
+    if site_upper and label_upper.startswith(site_upper + " "):
+        offset = len(site_upper) + 1
+        return offset, label_upper[offset:]
+    if bldg_upper and label_upper.startswith(bldg_upper + " "):
+        offset = len(bldg_upper) + 1
+        return offset, label_upper[offset:]
+    return 0, label_upper
+
+
+def _match_house_number(input_num_str, number_first, number_last) -> bool:
+    """Check if input house number matches G-NAF number_first and number_last."""
+    num_match = re.search(r"\d+", input_num_str)
+    if not num_match:
+        return False
+
+    input_number = int(num_match.group())
+    first_match = re.search(r"\d+", number_first) if is_present(number_first) else None
+    last_match = re.search(r"\d+", number_last) if is_present(number_last) else None
+
+    if first_match:
+        first_int = int(first_match.group())
+        if last_match:
+            last_int = int(last_match.group())
+            return min(first_int, last_int) <= input_number <= max(first_int, last_int)
+        return input_number == first_int
+    return False
+
+
 def rescore_candidate(addr_normalized, row, abbreviations):
     """Re-score a candidate via structural matching of number, unit, and lot."""
     score = float(row.similarity_score)
@@ -263,18 +300,9 @@ def rescore_candidate(addr_normalized, row, abbreviations):
         return score
 
     # Strip site name / building name from G-NAF label for accurate index
-    label_upper = row.address_label.upper()
-    site_upper = row.address_site_name.upper() if is_present(row.address_site_name) else ""
-    bldg_upper = row.building_name.upper() if is_present(row.building_name) else ""
-
-    clean_label = label_upper
-    prefix_offset = 0
-    if site_upper and label_upper.startswith(site_upper + " "):
-        prefix_offset = len(site_upper) + 1
-        clean_label = label_upper[prefix_offset:]
-    elif bldg_upper and label_upper.startswith(bldg_upper + " "):
-        prefix_offset = len(bldg_upper) + 1
-        clean_label = label_upper[prefix_offset:]
+    prefix_offset, clean_label = _strip_site_or_building_prefix(
+        row.address_label.upper(), row.address_site_name, row.building_name
+    )
 
     clean_gnaf_idx = clean_label.find(street_name_upper)
     if clean_gnaf_idx == -1:
@@ -294,20 +322,7 @@ def rescore_candidate(addr_normalized, row, abbreviations):
         input_num_str = prefix_words[-1].strip() if prefix_words else ""
 
     # 1. House number matching
-    num_matches = False
-    num_match = re.search(r"\d+", input_num_str)
-    if num_match:
-        input_number = int(num_match.group())
-        first_match = re.search(r"\d+", row.number_first) if is_present(row.number_first) else None
-        last_match = re.search(r"\d+", row.number_last) if is_present(row.number_last) else None
-
-        if first_match:
-            first_int = int(first_match.group())
-            if last_match:
-                last_int = int(last_match.group())
-                num_matches = min(first_int, last_int) <= input_number <= max(first_int, last_int)
-            else:
-                num_matches = (input_number == first_int)
+    num_matches = _match_house_number(input_num_str, row.number_first, row.number_last)
 
     # 2. Unit / flat matching
     if is_present(row.flat_number):
