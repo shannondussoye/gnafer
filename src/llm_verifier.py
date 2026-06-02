@@ -7,9 +7,8 @@ whether they refer to the same physical address.
 import asyncio
 import json
 import logging
-import os
 
-from ollama import AsyncClient, Client
+from ollama import AsyncClient
 
 from src.config import settings
 
@@ -40,7 +39,6 @@ class LLMVerifier:
         self._model: str = model if model is not None else settings.ollama_model
         self._host: str = host if host is not None else settings.ollama_host
         self._async_client = AsyncClient(host=self._host)
-        self._sync_client = Client(host=self._host)
 
     def _build_prompt(self, input_address: str, candidate_label: str) -> str:
         return (
@@ -90,45 +88,12 @@ class LLMVerifier:
                     return False
         return False  # unreachable, but satisfies type checkers
 
-    def verify(self, input_address: str, candidate_label: str) -> bool:
-        """Ask the LLM if two addresses are the same (sync).
-
-        Retries up to ``_MAX_RETRIES`` times on transient failures.
-        """
-        import time
-        for attempt in range(_MAX_RETRIES + 1):
-            try:
-                response = self._sync_client.chat(
-                    model=self._model,
-                    messages=[
-                        {"role": "system", "content": VERIFY_SYSTEM_PROMPT},
-                        {"role": "user", "content": self._build_prompt(input_address, candidate_label)},
-                    ],
-                    format="json",
-                    options={"temperature": 0},
-                )
-                return self._parse_response(response["message"]["content"])
-            except Exception:
-                if attempt < _MAX_RETRIES:
-                    logger.debug(
-                        "LLM verification attempt %d failed for '%s' vs '%s', retrying...",
-                        attempt + 1, input_address, candidate_label, exc_info=True,
-                    )
-                    time.sleep(_RETRY_DELAY * (attempt + 1))
-                else:
-                    logger.debug(
-                        "LLM verification failed after %d attempts for '%s' vs '%s'",
-                        _MAX_RETRIES + 1, input_address, candidate_label, exc_info=True,
-                    )
-                    return False
-        return False  # unreachable, but satisfies type checkers
-
     async def verify_batch_async(
         self, pairs: list[tuple[str, str]], batch_size: int | None = None,
     ) -> list[bool]:
         """Verify multiple (input, candidate) pairs concurrently."""
         if batch_size is None:
-            batch_size = int(os.getenv("LLM_BATCH_SIZE", "15"))
+            batch_size = settings.llm_batch_size
         results = []
         for i in range(0, len(pairs), batch_size):
             batch = pairs[i : i + batch_size]
