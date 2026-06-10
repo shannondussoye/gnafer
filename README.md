@@ -98,6 +98,31 @@ Trigram similarity is fast and handles typos and abbreviations well, but it can'
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) package manager
 
+### 📋 Environment Configuration (`.env`)
+
+All configuration is centralised via Pydantic Settings (`src/config.py`). Copy `.env.example` to `.env` and adjust as needed:
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `DB_USER` | PostgreSQL user | `postgres` |
+| `DB_PASSWORD` | PostgreSQL password | `postgres` |
+| `DB_NAME` | Database name | `gnafer` |
+| `DB_HOST` | Database host | `localhost` |
+| `DB_PORT` | Database port | `5432` |
+| `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
+| `TRIGRAM_WORKERS` | Parallel matching threads | `16` |
+| `STREET_TYPES_PSV` | Path to street type authority file | `data/Authority_Code_...psv` |
+| `LLM_VERIFY_THRESHOLD` | Min trigram score to trigger LLM verification | `0.8` |
+| `OLLAMA_MODEL` | Ollama model for verification | `qwen2.5:latest` |
+| `LLM_BATCH_SIZE` | Concurrent LLM verifications per batch | `15` |
+| `JOB_TTL_SECONDS` | Seconds before completed jobs are evicted | `3600` |
+| `JOB_MAX_STORE_SIZE` | Max concurrent jobs in store | `1000` |
+| `MAX_BATCH_SIZE` | Max addresses per batch request | `10000` |
+| `LOGTAIL_TOKEN` | Remote structured logging token | *(optional)* |
+| `GNAF_CSV_PATH` | Path to GNAF CORE PSV for ingestion | `data/GNAF_CORE.psv` |
+
+> ⚠️ Change `DB_USER`/`DB_PASSWORD` for any non-local deployment.
+
 ### 🏗️ Architecture Note
 
 GNAFER uses a **hybrid topology**: PostgreSQL runs in Docker, while Ollama runs on the host for direct GPU access.
@@ -129,27 +154,30 @@ make setup
 # 2. Copy and configure environment
 cp .env.example .env
 
-# 3. Start PostgreSQL
+# 3. Run the test suite (no database required)
+make test
+
+# 4. Start PostgreSQL
 make start
 
-# 4. Pull the LLM model
+# 5. Pull the LLM model
 ollama pull qwen2.5:latest
 
-# 5. Download GNAF CORE, place in data/GNAF_CORE.psv, and ingest
+# 6. Download GNAF CORE, place in data/GNAF_CORE.psv, and ingest
 # (Note: Ingestion will raise a FileNotFoundError if the GNAF file is missing)
 make db-init
 
-# 6. Check all components are up
+# 7. Check all components are up
 make status
 
-# 7. Create input.txt (one address per line) in data/ and run the pipeline
+# 8. Create input.txt (one address per line) in data/ and run the pipeline
 echo "G04/7 - 11 Derowie Ave, Homebush, NSW 2140" > data/input.txt
 make run
 # Or use the Typer CLI:
 # uv run gnafer batch data/input.txt --output data/geocoded.csv
 ```
 
-> ⚠️ Data ingestion processes ~15.8 million rows and takes 1–2 hours. Monitor progress with `make db-status`. Output from step 7 is exported to `data/geocoded.csv`.
+> ⚠️ Data ingestion processes ~15.8 million rows and takes 1–2 hours. Monitor progress with `make db-status`. Output from step 8 is exported to `data/geocoded.csv`.
 
 ### Docker Deployment
 
@@ -178,7 +206,60 @@ cat data/geocoded.csv
 
 ---
 
+## 🧪 Testing & Validation
+
+Run the test suite using `make test`. The tests utilize mocked database connection pools and cursor interfaces (simulating query results), ensuring the entire suite is self-contained and runs instantly (<1s) in local or CI environments without needing a live PostgreSQL database:
+
+```bash
+make test
+```
+
+You can also run the linter and type checker independently:
+
+```bash
+# Linting
+uv run ruff check src/ tests/
+
+# Type checking
+uv run mypy src/
+```
+
+---
+
 ## 🖥️ Usage
+
+### CLI (Typer)
+
+GNAFER ships with a built-in CLI via [Typer](https://typer.tiangolo.com/) for ad-hoc and batch geocoding:
+
+```bash
+# Geocode a single address
+uv run gnafer geocode "1704/45 Macquarie Street, Parramatta, NSW 2150" --llm
+
+# Batch geocode from a file
+uv run gnafer batch data/input.txt --output data/geocoded.csv --workers 8
+
+# Launch the API server
+uv run gnafer serve --host 0.0.0.0 --port 8000 --reload
+```
+
+| Command | Purpose | Example |
+|:---|:---|:---|
+| `gnafer geocode` | Single address geocoding | `gnafer geocode "1 George St, Sydney" --llm` |
+| `gnafer batch` | Batch processing from file | `gnafer batch data/input.txt --workers 8` |
+| `gnafer serve` | Launch the FastAPI server | `gnafer serve --reload` |
+
+> The `--llm` flag on `geocode` triggers LLM verification for near-matches (scores between the threshold and 1.0). Requires Ollama to be running.
+
+### CLI Batch Processing (Legacy)
+
+Create a `data/input.txt` file with one address per line, then:
+
+```bash
+make run
+```
+
+Outputs `data/geocoded.csv` with match scores, PIDs, coordinates, and LLM verification status.
 
 ### REST API
 
@@ -208,30 +289,30 @@ curl http://localhost:8000/health
 ```bash
 curl -X POST http://localhost:8000/geocode \
      -H "Content-Type: application/json" \
-     -d '{"address": "42/7 Weston St, Rosehill, NSW 2142"}'
+     -d '{"address": "1704/45 Macquarie Street, Parramatta, NSW 2150"}'
 ```
 
 **Example Response:**
 ```json
 {
-  "input_address": "42/7 Weston St, Rosehill, NSW 2142",
+  "input_address": "1704/45 Macquarie Street, Parramatta, NSW 2150",
   "similarity_score": 1.0,
-  "address_detail_pid": "GANSW705856403",
-  "address_label": "42/7 WESTON STREET, ROSEHILL NSW 2142",
-  "flat_number": "42",
+  "address_detail_pid": "GANSW705645045",
+  "address_label": "1704/45 MACQUARIE STREET, PARRAMATTA NSW 2150",
+  "flat_number": "1704",
   "level_type": null,
   "level_number": null,
-  "number_first": "7",
+  "number_first": "45",
   "number_last": null,
   "lot_number": null,
-  "street_name": "WESTON",
+  "street_name": "MACQUARIE",
   "street_type": "STREET",
   "street_suffix": null,
-  "suburb_name": "ROSEHILL",
+  "suburb_name": "PARRAMATTA",
   "state": "NSW",
-  "postcode": "2142",
-  "latitude": -33.824248,
-  "longitude": 151.025345,
+  "postcode": "2150",
+  "latitude": -33.8178,
+  "longitude": 151.0028,
   "mb_code": "10095873900",
   "llm_verified": false,
   "match_method": "TRIGRAM"
@@ -315,74 +396,6 @@ curl http://localhost:8000/jobs/8c562da9-67a0-4815-a637-4579a741d714/results
 ```
 
 > Batch requests are limited to 10,000 addresses. Completed jobs expire after 1 hour (configurable via `JOB_TTL_SECONDS`).
-
-### CLI (Typer)
-
-GNAFER ships with a built-in CLI via [Typer](https://typer.tiangolo.com/) for ad-hoc and batch geocoding:
-
-```bash
-# Geocode a single address
-uv run gnafer geocode "42/7 Weston St, Rosehill, NSW 2142" --llm
-
-# Batch geocode from a file
-uv run gnafer batch data/input.txt --output data/geocoded.csv --workers 8
-
-# Launch the API server
-uv run gnafer serve --host 0.0.0.0 --port 8000 --reload
-```
-
-| Command | Purpose | Example |
-|:---|:---|:---|
-| `gnafer geocode` | Single address geocoding | `gnafer geocode "1 George St, Sydney" --llm` |
-| `gnafer batch` | Batch processing from file | `gnafer batch data/input.txt --workers 8` |
-| `gnafer serve` | Launch the FastAPI server | `gnafer serve --reload` |
-
-> The `--llm` flag on `geocode` triggers LLM verification for near-matches (scores between the threshold and 1.0). Requires Ollama to be running.
-
-### CLI Batch Processing (Legacy)
-
-Create a `data/input.txt` file with one address per line, then:
-
-```bash
-make run
-```
-
-Outputs `data/geocoded.csv` with match scores, PIDs, coordinates, and LLM verification status.
-
-### Testing
-
-Run the test suite using `make test`. The tests utilize mocked database connection pools and cursor interfaces (simulating query results), ensuring the entire suite is self-contained and runs instantly (<1s) in local or CI environments without needing a live PostgreSQL database:
-
-```bash
-make test
-```
-
----
-
-## 📋 Environment Configuration (`.env`)
-
-All configuration is centralised via Pydantic Settings (`src/config.py`). Copy `.env.example` to `.env` and adjust as needed:
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `DB_USER` | PostgreSQL user | `postgres` |
-| `DB_PASSWORD` | PostgreSQL password | `postgres` |
-| `DB_NAME` | Database name | `gnafer` |
-| `DB_HOST` | Database host | `localhost` |
-| `DB_PORT` | Database port | `5432` |
-| `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
-| `TRIGRAM_WORKERS` | Parallel matching threads | `16` |
-| `STREET_TYPES_PSV` | Path to street type authority file | `data/Authority_Code_...psv` |
-| `LLM_VERIFY_THRESHOLD` | Min trigram score to trigger LLM verification | `0.8` |
-| `OLLAMA_MODEL` | Ollama model for verification | `qwen2.5:latest` |
-| `LLM_BATCH_SIZE` | Concurrent LLM verifications per batch | `15` |
-| `JOB_TTL_SECONDS` | Seconds before completed jobs are evicted | `3600` |
-| `JOB_MAX_STORE_SIZE` | Max concurrent jobs in store | `1000` |
-| `MAX_BATCH_SIZE` | Max addresses per batch request | `10000` |
-| `LOGTAIL_TOKEN` | Remote structured logging token | *(optional)* |
-| `GNAF_CSV_PATH` | Path to GNAF CORE PSV for ingestion | `data/GNAF_CORE.psv` |
-
-> ⚠️ Change `DB_USER`/`DB_PASSWORD` for any non-local deployment.
 
 ---
 
