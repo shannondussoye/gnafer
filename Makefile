@@ -1,4 +1,4 @@
-.PHONY: help setup start stop status db-init db-status test run clean serve wait-db
+.PHONY: help setup start stop status db-init db-status test clean wait-db
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -35,12 +35,6 @@ db-status: ## Show database ingestion status
 
 test: ## Run unit tests
 	uv run pytest tests/ -v --tb=short
-
-run: wait-db ## Run the geocoding pipeline
-	uv run python src/main.py
-
-serve: wait-db ## Launch the FastAPI server
-	uv run uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
 
 clean: ## Clean up temporary files
 	rm -rf __pycache__ src/__pycache__ tests/__pycache__

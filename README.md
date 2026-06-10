@@ -172,9 +172,7 @@ make status
 
 # 8. Create input.txt (one address per line) in data/ and run the pipeline
 echo "G04/7 - 11 Derowie Ave, Homebush, NSW 2140" > data/input.txt
-make run
-# Or use the Typer CLI:
-# uv run gnafer batch data/input.txt --output data/geocoded.csv
+uv run gnafer batch data/input.txt --output data/geocoded.csv
 ```
 
 > ⚠️ Data ingestion processes ~15.8 million rows and takes 1–2 hours. Monitor progress with `make db-status`. Output from step 8 is exported to `data/geocoded.csv`.
@@ -187,7 +185,7 @@ To run the full stack (API + database) in Docker:
 docker compose up -d
 ```
 
-The API will be available at `http://localhost:8000`. The app container depends on the database being healthy before starting.
+The API will be available at `http://localhost:8000`. The `app` container automatically starts the FastAPI server via `gnafer serve` and depends on the database being healthy before starting.
 
 #### Running CLI Batch Processing via Docker
 
@@ -198,7 +196,7 @@ Since `docker-compose.yml` mounts the project root directory as a volume, you ca
 echo "G04/7 - 11 Derowie Ave, Homebush, NSW 2140" > data/input.txt
 
 # 2. Run the pipeline inside the container
-docker compose run --rm app uv run python src/main.py
+docker compose run --rm app uv run gnafer batch data/input.txt --output data/geocoded.csv
 
 # 3. Results will be saved to data/geocoded.csv on your host machine
 cat data/geocoded.csv
@@ -251,12 +249,12 @@ uv run gnafer serve --host 0.0.0.0 --port 8000 --reload
 
 > The `--llm` flag on `geocode` triggers LLM verification for near-matches (scores between the threshold and 1.0). Requires Ollama to be running.
 
-### CLI Batch Processing (Legacy)
+### CLI Batch Processing
 
 Create a `data/input.txt` file with one address per line, then:
 
 ```bash
-make run
+uv run gnafer batch data/input.txt --output data/geocoded.csv
 ```
 
 Outputs `data/geocoded.csv` with match scores, PIDs, coordinates, and LLM verification status.
@@ -264,7 +262,7 @@ Outputs `data/geocoded.csv` with match scores, PIDs, coordinates, and LLM verifi
 ### REST API
 
 ```bash
-make serve
+uv run gnafer serve --reload
 ```
 
 #### Health Check
