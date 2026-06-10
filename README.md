@@ -67,6 +67,7 @@ Trigram similarity is fast and handles typos and abbreviations well, but it can'
 - **LLM Verification**: Optional local LLM pass to confirm near-matches (configurable threshold)
 - **Parallel Batch Processing**: `ThreadedConnectionPool` + `ThreadPoolExecutor` for high-throughput batch matching
 - **FastAPI Microservice**: REST API with single and background-batch endpoints, request tracing via `X-Request-ID`
+- **Typer CLI**: Built-in CLI for ad-hoc geocoding, batch processing, and server launch
 - **Centralised Configuration**: Pydantic Settings — all env vars read once, validated at startup
 - **Observability**: Structured JSON logging, Logtail integration
 - **CI/CD**: GitHub Actions with `ruff` linting, `mypy` type checking, `pytest` with coverage reporting
@@ -85,7 +86,7 @@ Trigram similarity is fast and handles typos and abbreviations well, but it can'
 | **Package Manager** | `uv` (deterministic lockfile) |
 | **Containers** | Docker & Docker Compose |
 | **CI** | GitHub Actions (lint → type check → test) |
-| **Testing** | `pytest` + `pytest-cov` (38 tests) |
+| **Testing** | `pytest` + `pytest-cov` (40 tests) |
 
 ---
 
@@ -144,6 +145,8 @@ make status
 # 7. Create input.txt (one address per line) in data/ and run the pipeline
 echo "G04/7 - 11 Derowie Ave, Homebush, NSW 2140" > data/input.txt
 make run
+# Or use the Typer CLI:
+# uv run gnafer batch data/input.txt --output data/geocoded.csv
 ```
 
 > ⚠️ Data ingestion processes ~15.8 million rows and takes 1–2 hours. Monitor progress with `make db-status`. Output from step 7 is exported to `data/geocoded.csv`.
@@ -313,7 +316,30 @@ curl http://localhost:8000/jobs/8c562da9-67a0-4815-a637-4579a741d714/results
 
 > Batch requests are limited to 10,000 addresses. Completed jobs expire after 1 hour (configurable via `JOB_TTL_SECONDS`).
 
-### CLI Batch Processing
+### CLI (Typer)
+
+GNAFER ships with a built-in CLI via [Typer](https://typer.tiangolo.com/) for ad-hoc and batch geocoding:
+
+```bash
+# Geocode a single address
+uv run gnafer geocode "42/7 Weston St, Rosehill, NSW 2142" --llm
+
+# Batch geocode from a file
+uv run gnafer batch data/input.txt --output data/geocoded.csv --workers 8
+
+# Launch the API server
+uv run gnafer serve --host 0.0.0.0 --port 8000 --reload
+```
+
+| Command | Purpose | Example |
+|:---|:---|:---|
+| `gnafer geocode` | Single address geocoding | `gnafer geocode "1 George St, Sydney" --llm` |
+| `gnafer batch` | Batch processing from file | `gnafer batch data/input.txt --workers 8` |
+| `gnafer serve` | Launch the FastAPI server | `gnafer serve --reload` |
+
+> The `--llm` flag on `geocode` triggers LLM verification for near-matches (scores between the threshold and 1.0). Requires Ollama to be running.
+
+### CLI Batch Processing (Legacy)
 
 Create a `data/input.txt` file with one address per line, then:
 
@@ -372,7 +398,8 @@ gnafer/
 │   ├── models.py           # Pydantic data models
 │   ├── observability.py    # Structured logging + health pings
 │   ├── ingest.py           # GNAF data loader
-│   └── main.py             # CLI batch pipeline
+│   ├── main.py             # CLI batch pipeline
+│   └── cli.py              # Typer CLI (geocode, batch, serve)
 ├── tests/
 │   ├── test_api.py             # API endpoint tests
 │   ├── test_matcher.py         # Pure function unit tests
