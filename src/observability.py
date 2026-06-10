@@ -40,13 +40,13 @@ class GeocoderObservability:
         else:
             self.logger.info("Observability: Logtail disabled (no token).", extra={"run_id": self.run_id})
 
-    def log_progress(self, message: str, metadata: dict | None = None):
+    def log_progress(self, message: str, metadata: dict | None = None) -> None:
         """Log structured data with session tracking."""
         full_metadata = {"run_id": self.run_id}
         if metadata:
             full_metadata.update(metadata)
         self.logger.info(message, extra=full_metadata)
 
-    def log_completion(self, stats: dict):
+    def log_completion(self, stats: dict) -> None:
         """Log final batch statistics."""
         self.log_progress("Geocoding Batch Complete", stats)

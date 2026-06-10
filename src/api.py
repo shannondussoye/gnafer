@@ -9,11 +9,13 @@ import functools
 import logging
 import time
 import uuid
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from src.config import settings
 from src.llm_verifier import LLMVerifier
@@ -53,7 +55,7 @@ async def _reap_expired_jobs() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _pool, _matcher, _verifier, _obs, _reaper_task
 
     # Use the unified connection pool factory (#14)
@@ -86,7 +88,7 @@ app = FastAPI(title="GNAF Geocoder API", version="2.0.0", lifespan=lifespan)
 class RequestTracingMiddleware(BaseHTTPMiddleware):
     """Attach a unique request_id to every request for end-to-end tracing."""
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
@@ -118,6 +120,7 @@ class JobStatus(BaseModel):
 
 
 jobs: dict[str, dict] = {}
+_jobs_lock = asyncio.Lock()
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -125,9 +128,10 @@ jobs: dict[str, dict] = {}
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     """Health check — verifies actual database connectivity (#11)."""
-    assert _pool is not None, "Pool not initialized"
+    if _pool is None:
+        raise RuntimeError("Pool not initialized")
     conn = None
     try:
         conn = _pool.getconn()
@@ -143,9 +147,10 @@ async def health():
 
 
 @app.post("/geocode", response_model=MatchResult)
-async def geocode_single(request: GeocodeRequest):
+async def geocode_single(request: GeocodeRequest) -> MatchResult:
     """Geocode a single address."""
-    assert _matcher is not None, "Matcher not initialized"
+    if _matcher is None:
+        raise RuntimeError("Matcher not initialized")
     # Run blocking match in executor to avoid blocking the event loop (#9)
     loop = asyncio.get_running_loop()
     match = await loop.run_in_executor(None, _matcher.match, request.address)
@@ -156,7 +161,8 @@ async def geocode_single(request: GeocodeRequest):
     # LLM verification if in threshold band
     if settings.llm_verify_threshold <= match.similarity_score < 1.0:
         try:
-            assert _verifier is not None
+            if _verifier is None:
+                raise RuntimeError("Verifier not initialized")
             if await _verifier.verify_async(match.input_address, match.address_label):
                 match = match.model_copy(update={
                     "similarity_score": 1.0,
@@ -178,9 +184,12 @@ async def geocode_single(request: GeocodeRequest):
 
 async def _process_batch(job_id: str, addresses: list[str]) -> None:
     """Background worker for batch geocoding."""
-    assert _matcher is not None, "Matcher not initialized"
-    assert _verifier is not None, "Verifier not initialized"
-    assert _obs is not None, "Observability not initialized"
+    if _matcher is None:
+        raise RuntimeError("Matcher not initialized")
+    if _verifier is None:
+        raise RuntimeError("Verifier not initialized")
+    if _obs is None:
+        raise RuntimeError("Observability not initialized")
 
     try:
         # Run blocking match_batch in executor (#9)
@@ -236,30 +245,31 @@ async def _process_batch(job_id: str, addresses: list[str]) -> None:
 
 
 @app.post("/geocode/batch")
-async def geocode_batch(request: BatchGeocodeRequest, background_tasks: BackgroundTasks):
+async def geocode_batch(request: BatchGeocodeRequest, background_tasks: BackgroundTasks) -> dict[str, str]:
     """Start a batch geocoding job (#10 — enforces max_batch_size via model validation)."""
     # Enforce max store size to prevent unbounded memory growth
-    if len(jobs) >= settings.job_max_store_size:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Job store full ({settings.job_max_store_size} jobs). Wait for existing jobs to expire.",
-        )
+    async with _jobs_lock:
+        if len(jobs) >= settings.job_max_store_size:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Job store full ({settings.job_max_store_size} jobs). Wait for existing jobs to expire.",
+            )
 
-    job_id = str(uuid.uuid4())
-    jobs[job_id] = {
-        "status": "processing",
-        "total": len(request.addresses),
-        "processed": 0,
-        "successful": 0,
-        "results": [],
-        "created_at": time.time(),
-    }
+        job_id = str(uuid.uuid4())
+        jobs[job_id] = {
+            "status": "processing",
+            "total": len(request.addresses),
+            "processed": 0,
+            "successful": 0,
+            "results": [],
+            "created_at": time.time(),
+        }
     background_tasks.add_task(_process_batch, job_id, request.addresses)
     return {"job_id": job_id, "message": "Batch job started"}
 
 
 @app.get("/jobs/{job_id}", response_model=JobStatus)
-async def get_job_status(job_id: str):
+async def get_job_status(job_id: str) -> JobStatus:
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     job = jobs[job_id]
@@ -268,7 +278,7 @@ async def get_job_status(job_id: str):
 
 
 @app.get("/jobs/{job_id}/results")
-async def get_job_results(job_id: str):
+async def get_job_results(job_id: str) -> dict[str, object]:
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"job_id": job_id, "status": jobs[job_id]["status"], "results": jobs[job_id].get("results", [])}

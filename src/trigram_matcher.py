@@ -12,6 +12,7 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Protocol
 
 import psycopg2
 from psycopg2.extras import NamedTupleCursor
@@ -21,6 +22,31 @@ from tqdm import tqdm
 from src.models import MatchResult
 
 logger = logging.getLogger(__name__)
+
+
+class _Row(Protocol):
+    """Protocol for a GNAF row returned by NamedTupleCursor."""
+    address_detail_pid: str
+    address_label: str
+    similarity_score: float
+    flat_number: str | None
+    level_type: str | None
+    level_number: str | None
+    number_first: str | None
+    number_last: str | None
+    lot_number: str | None
+    street_name: str | None
+    street_type: str | None
+    street_suffix: str | None
+    suburb_name: str
+    state: str
+    postcode: str
+    address_site_name: str | None
+    building_name: str | None
+    latitude: float | None
+    longitude: float | None
+    mb_code: str | None
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -117,19 +143,19 @@ LIMIT 10;
 # ---------------------------------------------------------------------------
 
 
-def is_present(val):
+def is_present(val: object) -> bool:
     """Return True if *val* is a meaningful non-null value."""
     return val is not None and str(val).strip() not in ("", "NaN", "nan", "None")
 
 
-def _expand_word_abbreviation(words, idx, abbreviations):
+def _expand_word_abbreviation(words: list[str], idx: int, abbreviations: dict[str, str]) -> None:
     """Expand abbreviation at index `idx` in word list `words` in-place."""
     w = words[idx].rstrip(",")
     if w in abbreviations:
         words[idx] = abbreviations[w]
 
 
-def load_street_types(psv_path):
+def load_street_types(psv_path: str) -> dict[str, str]:
     """Load street type CODE → NAME mapping from the G-NAF authority PSV file."""
     mapping: dict[str, str] = {}
     if not os.path.exists(psv_path):
@@ -151,7 +177,7 @@ def load_street_types(psv_path):
     return mapping
 
 
-def parse_address(address):
+def parse_address(address: str) -> tuple[str | None, str | None]:
     """Extract postcode and suburb from an Australian address string."""
     match = ADDR_RE.search(address)
     if match:
@@ -159,7 +185,7 @@ def parse_address(address):
     return None, None
 
 
-def normalize_address(address, postcode, suburb, abbreviations):
+def normalize_address(address: str, postcode: str | None, suburb: str | None, abbreviations: dict[str, str]) -> str:
     """Normalise *address* for trigram comparison against G-NAF labels."""
     addr_upper = address.upper().strip()
 
@@ -189,7 +215,7 @@ def normalize_address(address, postcode, suburb, abbreviations):
     return addr_upper
 
 
-def normalize_street_words(text, abbreviations):
+def normalize_street_words(text: str, abbreviations: dict[str, str]) -> str:
     """Expand all street type abbreviations in *text*."""
     words = text.upper().split()
     for i in range(len(words)):
@@ -197,7 +223,7 @@ def normalize_street_words(text, abbreviations):
     return " ".join(words)
 
 
-def extract_street_name(address, postcode, suburb, abbreviations, _abbreviation_values=None):
+def extract_street_name(address: str, postcode: str | None, suburb: str | None, abbreviations: dict[str, str], _abbreviation_values: frozenset[str] | None = None) -> str:
     """Extract the street name component from *address*.
 
     Parameters
@@ -252,13 +278,13 @@ def extract_street_name(address, postcode, suburb, abbreviations, _abbreviation_
 # ---------------------------------------------------------------------------
 
 
-def _strip_site_or_building_prefix(label_upper, site_name, building_name) -> tuple[int, str]:
+def _strip_site_or_building_prefix(label_upper: str, site_name: str | None, building_name: str | None) -> tuple[int, str]:
     """Strip address_site_name or building_name prefix from G-NAF label.
 
     Returns (prefix_offset, clean_label).
     """
-    site_upper = site_name.upper() if is_present(site_name) else ""
-    bldg_upper = building_name.upper() if is_present(building_name) else ""
+    site_upper = site_name.upper() if site_name is not None else ""
+    bldg_upper = building_name.upper() if building_name is not None else ""
 
     if site_upper and label_upper.startswith(site_upper + " "):
         offset = len(site_upper) + 1
@@ -269,15 +295,15 @@ def _strip_site_or_building_prefix(label_upper, site_name, building_name) -> tup
     return 0, label_upper
 
 
-def _match_house_number(input_num_str, number_first, number_last) -> bool:
+def _match_house_number(input_num_str: str, number_first: str | None, number_last: str | None) -> bool:
     """Check if input house number matches G-NAF number_first and number_last."""
     num_match = re.search(r"\d+", input_num_str)
     if not num_match:
         return False
 
     input_number = int(num_match.group())
-    first_match = re.search(r"\d+", number_first) if is_present(number_first) else None
-    last_match = re.search(r"\d+", number_last) if is_present(number_last) else None
+    first_match = re.search(r"\d+", number_first or "") if number_first is not None else None
+    last_match = re.search(r"\d+", number_last or "") if number_last is not None else None
 
     if first_match:
         first_int = int(first_match.group())
@@ -288,7 +314,7 @@ def _match_house_number(input_num_str, number_first, number_last) -> bool:
     return False
 
 
-def rescore_candidate(addr_normalized, row, abbreviations):
+def rescore_candidate(addr_normalized: str, row: Any, abbreviations: dict[str, str]) -> float:
     """Re-score a candidate via structural matching of number, unit, and lot."""
     score = float(row.similarity_score)
     street_name_upper = row.street_name.upper() if row.street_name else ""

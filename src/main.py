@@ -22,7 +22,11 @@ INPUT_FILE = PROJECT_ROOT / "data" / "input.txt"
 OUTPUT_FILE = PROJECT_ROOT / "data" / "geocoded.csv"
 
 
-async def main():
+async def run_batch(
+    input_file: Path = INPUT_FILE,
+    output_file: Path = OUTPUT_FILE,
+    workers: int = settings.trigram_workers,
+) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -32,11 +36,11 @@ async def main():
     obs = GeocoderObservability(run_id=run_id)
 
     try:
-        if not INPUT_FILE.exists():
-            logger.error("Input file %s not found.", INPUT_FILE)
+        if not input_file.exists():
+            logger.error("Input file %s not found.", input_file)
             return
 
-        with open(INPUT_FILE) as f:
+        with open(input_file) as f:
             addresses = [
                 line.strip().strip('"').strip()
                 for line in f
@@ -58,7 +62,7 @@ async def main():
         # --- Pass 1: Trigram matching ---
         print("\n[Pass 1] Trigram matching...")
         try:
-            matches = matcher.match_batch(addresses, workers=settings.trigram_workers, show_progress=True)
+            matches = matcher.match_batch(addresses, workers=workers, show_progress=True)
         finally:
             pool.closeall()
 
@@ -95,7 +99,7 @@ async def main():
                 m.match_method = "TRIGRAM" if m.similarity_score > 0 else "FAILED"
 
         fieldnames = list(MatchResult.model_fields.keys())
-        with open(OUTPUT_FILE, "w", newline="") as f:
+        with open(output_file, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(m.model_dump() for m in matches)
@@ -106,11 +110,15 @@ async def main():
         obs.log_completion({"total": len(addresses), "success": success, "failed": len(addresses) - success})
 
         print(f"\n--- Summary: {success} matched, {len(addresses) - success} failed, {verified} LLM verified ---")
-        print(f"Results saved to {OUTPUT_FILE}")
+        print(f"Results saved to {output_file}")
 
     except Exception as e:
         logger.error("Geocoding process failed: %s", e)
         raise
+
+
+async def main() -> None:
+    await run_batch()
 
 
 if __name__ == "__main__":
