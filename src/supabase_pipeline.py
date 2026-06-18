@@ -6,12 +6,10 @@ GNAFER trigram + LLM pipeline, and writes the results back.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
 from src.config import settings
-from src.llm_verifier import LLMVerifier
 from src.models import PendingAddress, SupabaseGeocodeResult
 from src.supabase_client import managed_supabase_client, with_retry
 from src.trigram_matcher import TrigramAddressMatcher, get_connection_pool, load_street_types
