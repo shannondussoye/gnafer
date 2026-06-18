@@ -25,5 +25,5 @@ COPY data/Authority_Code_STREET_TYPE_AUT_psv.psv data/
 # Default port
 EXPOSE 8000
 
-# Run the API server
-CMD ["uv", "run", "uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the API server via the CLI
+CMD ["uv", "run", "gnafer", "serve", "--host", "0.0.0.0", "--port", "8000"]
