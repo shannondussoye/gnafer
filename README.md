@@ -246,8 +246,66 @@ uv run gnafer serve --host 0.0.0.0 --port 8000 --reload
 | `gnafer geocode` | Single address geocoding | `gnafer geocode "1 George St, Sydney" --llm` |
 | `gnafer batch` | Batch processing from file | `gnafer batch data/input.txt --workers 8` |
 | `gnafer serve` | Launch the FastAPI server | `gnafer serve --reload` |
+| `gnafer poll-listings` | Poll Supabase listings (fast tier) | `gnafer poll-listings --mode GEO` |
+| `gnafer verify-llm` | Weekly LLM verification | `gnafer verify-llm --threshold 0.8` |
 
 > The `--llm` flag on `geocode` triggers LLM verification for near-matches (scores between the threshold and 1.0). Requires Ollama to be running.
+
+### Supabase Listings Geocoder (Two-Tier Architecture)
+
+For production workflows that geocode addresses stored in a Supabase `listings` table, GNAFER provides a two-tier architecture:
+
+| Tier | Machine | LLM | Command | Purpose |
+|:---|:---|:---|:---|:---|
+| **Fast** | Small / Docker | No | `gnafer poll-listings` | Continuously poll and geocode with trigram matching only |
+| **Verify** | Powerful / Local | Yes | `gnafer verify-llm` | Weekly re-verification of near-matches with LLM |
+
+**Key design:** The fast tier writes `fuzzy_score` (trigram similarity) to the `listings` table. The LLM verifier later checks near-matches and sets `llm_confirmed` — but **never overwrites** the original `fuzzy_score`. You keep both scores.
+
+#### Fast Geocoder (Docker, No LLM)
+
+```bash
+# Run once
+uv run gnafer poll-listings --mode GEO --interval 60 --batch-size 100
+
+# Or auto-start in Docker
+docker compose -f docker-compose.worker.yml up -d
+```
+
+This polls the Supabase `listings` table for rows where `is_active = TRUE AND lat IS NULL`, geocodes them with trigram matching, and writes back:
+- `lat`, `lng` — coordinates
+- `fuzzy_score` — raw trigram similarity (0.0–1.0)
+- `address_detail_pid`, `address_label` — G-NAF metadata
+- `match_method = "TRIGRAM"`
+- `geocode_status = "SUCCESS"` or `"NOT_FOUND"`
+
+#### LLM Verifier (Weekly, Local Ollama)
+
+```bash
+# One-shot run
+uv run gnafer verify-llm --threshold 0.8 --batch-size 15
+
+# Or set up a weekly cron job
+0 2 * * 0 cd /path/to/gnafer && uv run gnafer verify-llm --threshold 0.8
+```
+
+This queries listings in the near-match band (`0.8 <= fuzzy_score < 1.0`) that haven't been LLM-verified yet, re-runs the match, asks Ollama whether the addresses match, and writes back:
+- `llm_verified = TRUE`
+- `llm_confirmed = TRUE/FALSE`
+- `llm_verified_at` — timestamp
+
+#### Required Schema Changes
+
+```sql
+ALTER TABLE listings
+    ADD COLUMN fuzzy_score REAL,
+    ADD COLUMN llm_verified BOOLEAN DEFAULT FALSE,
+    ADD COLUMN llm_confirmed BOOLEAN,
+    ADD COLUMN llm_verified_at TIMESTAMPTZ,
+    ADD COLUMN address_detail_pid TEXT,
+    ADD COLUMN address_label TEXT,
+    ADD COLUMN match_method TEXT;
+```
 
 ### CLI Batch Processing
 
