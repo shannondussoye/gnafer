@@ -1,0 +1,52 @@
+# Minimal local Supabase stack for manual integration testing.
+#
+# This compose file spins up just the Postgres + PostgREST services that
+# GNAFER needs for the Supabase pipeline. It does NOT include Auth, Storage,
+# Realtime, or Edge Functions.
+#
+# Usage:
+#   docker compose -f docker-compose.supabase.yml up -d
+#   # Run GNAFER against localhost:54321 (PostgREST)
+#   SUPABASE_URL=http://localhost:54321 \
+#   SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.M4B8QfZgJ8QfZgJ8QfZgJ8QfZgJ8QfZgJ8QfZgJ8QfZg \
+#     uv run gnafer supabase-pipeline
+#
+# Teardown:
+#   docker compose -f docker-compose.supabase.yml down -v
+
+services:
+  supabase-db:
+    image: supabase/postgres:15.1.0.147
+    container_name: gnafer-supabase-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "54322:5432"
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+      - ./sql/supabase_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  supabase-rest:
+    image: postgrest/postgrest:v11.2.0
+    container_name: gnafer-supabase-rest
+    environment:
+      PGRST_DB_URI: postgres://postgres:postgres@supabase-db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      PGRST_JWT_ROLE_CLAIM_KEY: .role
+    ports:
+      - "54321:3000"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+
+volumes:
+  supabase-db-data:

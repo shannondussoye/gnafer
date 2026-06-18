@@ -19,8 +19,10 @@ from starlette.responses import Response
 
 from src.config import settings
 from src.llm_verifier import LLMVerifier
+from src.main import run_supabase_batch
 from src.models import MatchResult
 from src.observability import GeocoderObservability
+from src.supabase_pipeline import run_pipeline
 from src.trigram_matcher import TrigramAddressMatcher, get_connection_pool, load_street_types
 
 logger = logging.getLogger(__name__)
@@ -108,6 +110,10 @@ class GeocodeRequest(BaseModel):
 
 class BatchGeocodeRequest(BaseModel):
     addresses: list[str] = Field(..., max_length=settings.max_batch_size)
+
+
+class SupabaseBatchRequest(BaseModel):
+    limit: int = Field(default=0, ge=0, description="Maximum rows to process (0 = all pending)")
 
 
 class JobStatus(BaseModel):
@@ -266,6 +272,94 @@ async def geocode_batch(request: BatchGeocodeRequest, background_tasks: Backgrou
         }
     background_tasks.add_task(_process_batch, job_id, request.addresses)
     return {"job_id": job_id, "message": "Batch job started"}
+
+
+def _run_supabase_batch_sync(limit: int) -> dict[str, int]:
+    """Sync wrapper so the async pipeline can be dispatched in a thread executor."""
+    return asyncio.run(run_supabase_batch(workers=settings.trigram_workers, limit=limit))
+
+
+async def _process_supabase_batch(job_id: str, limit: int) -> None:
+    """Background worker for Supabase batch geocoding."""
+    try:
+        loop = asyncio.get_running_loop()
+        summary = await loop.run_in_executor(
+            None, functools.partial(_run_supabase_batch_sync, limit=limit),
+        )
+        jobs[job_id]["processed"] = summary["total"]
+        jobs[job_id]["successful"] = summary["success"]
+        jobs[job_id]["status"] = "completed"
+        jobs[job_id]["completed_at"] = time.time()
+    except Exception:
+        logger.exception("Supabase batch processing failed for job %s", job_id)
+        jobs[job_id]["status"] = "failed"
+        jobs[job_id]["completed_at"] = time.time()
+
+
+@app.post("/geocode/supabase")
+async def geocode_supabase(request: SupabaseBatchRequest, background_tasks: BackgroundTasks) -> dict[str, str]:
+    """Start a Supabase pipeline job using the new supabase_pipeline module."""
+    if not settings.supabase_url or not settings.supabase_auth_key:
+        raise HTTPException(status_code=503, detail="Supabase is not configured")
+
+    async with _jobs_lock:
+        if len(jobs) >= settings.job_max_store_size:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Job store full ({settings.job_max_store_size} jobs). Wait for existing jobs to expire.",
+            )
+
+        job_id = str(uuid.uuid4())
+        jobs[job_id] = {
+            "status": "processing",
+            "total": 0,
+            "processed": 0,
+            "successful": 0,
+            "results": [],
+            "created_at": time.time(),
+        }
+
+    async def _worker() -> None:
+        try:
+            stats = await asyncio.to_thread(run_pipeline, limit=request.limit if request.limit > 0 else None)
+            jobs[job_id]["total"] = stats["pulled"]
+            jobs[job_id]["processed"] = stats["geocoded"]
+            jobs[job_id]["successful"] = stats["written"]
+            jobs[job_id]["status"] = "completed"
+            jobs[job_id]["completed_at"] = time.time()
+        except Exception:
+            logger.exception("Supabase pipeline failed for job %s", job_id)
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["completed_at"] = time.time()
+
+    background_tasks.add_task(_worker)
+    return {"job_id": job_id, "message": "Supabase pipeline started"}
+
+
+@app.post("/geocode/supabase-batch")
+async def geocode_supabase_batch(request: SupabaseBatchRequest, background_tasks: BackgroundTasks) -> dict[str, str]:
+    """Start a Supabase batch geocoding job."""
+    if not settings.supabase_url or not settings.supabase_key:
+        raise HTTPException(status_code=503, detail="Supabase is not configured")
+
+    async with _jobs_lock:
+        if len(jobs) >= settings.job_max_store_size:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Job store full ({settings.job_max_store_size} jobs). Wait for existing jobs to expire.",
+            )
+
+        job_id = str(uuid.uuid4())
+        jobs[job_id] = {
+            "status": "processing",
+            "total": 0,
+            "processed": 0,
+            "successful": 0,
+            "results": [],
+            "created_at": time.time(),
+        }
+    background_tasks.add_task(_process_supabase_batch, job_id, request.limit)
+    return {"job_id": job_id, "message": "Supabase batch job started"}
 
 
 @app.get("/jobs/{job_id}", response_model=JobStatus)

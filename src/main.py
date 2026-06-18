@@ -7,12 +7,14 @@ import asyncio
 import csv
 import logging
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from src.config import settings
 from src.llm_verifier import LLMVerifier
 from src.models import MatchResult
 from src.observability import GeocoderObservability
+from src.supabase_client import SupabaseGeocodeClient, get_supabase_client
 from src.trigram_matcher import TrigramAddressMatcher, get_connection_pool, load_street_types
 
 logger = logging.getLogger("gnafer")
@@ -114,6 +116,117 @@ async def run_batch(
 
     except Exception as e:
         logger.error("Geocoding process failed: %s", e)
+        raise
+
+
+async def run_supabase_batch(
+    workers: int = settings.trigram_workers,
+    limit: int = 0,
+) -> dict[str, int]:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    run_id = str(uuid.uuid4())
+    obs = GeocoderObservability(run_id=run_id)
+
+    if not settings.supabase_url or not settings.supabase_key:
+        logger.error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_KEY.")
+        return {"total": 0, "success": 0, "failed": 0, "verified": 0}
+
+    try:
+        sb = SupabaseGeocodeClient(get_supabase_client())
+        rows = sb.fetch_pending(limit=limit)
+        if not rows:
+            logger.info("No pending addresses found in Supabase.")
+            return {"total": 0, "success": 0, "failed": 0, "verified": 0}
+
+        ids = [r["id"] for r in rows]
+        sb.mark_processing(ids)
+
+        addresses = [r.get("input_address", r.get("address", "")) for r in rows]
+
+        abbreviations = load_street_types(settings.psv_path)
+        pool = get_connection_pool()
+        matcher = TrigramAddressMatcher(pool=pool, abbreviations=abbreviations)
+        verifier = LLMVerifier()
+        llm_available = await verifier.check_available()
+
+        obs.log_progress("Starting Supabase geocoding", {
+            "total_addresses": len(addresses),
+            "llm_available": llm_available,
+        })
+        print(f"--- Starting Supabase Geocoding ({len(addresses)} addresses) ---")
+
+        print("\n[Pass 1] Trigram matching...")
+        try:
+            matches = matcher.match_batch(addresses, workers=workers, show_progress=True)
+        finally:
+            pool.closeall()
+
+        matched = sum(1 for m in matches if m.similarity_score > 0)
+        print(f"Pass 1 complete: {matched} matched, {len(addresses) - matched} unmatched.")
+
+        pending = [
+            (i, m) for i, m in enumerate(matches)
+            if settings.llm_verify_threshold <= m.similarity_score < 1.0
+        ]
+
+        if pending and llm_available:
+            print(f"\n[Pass 2] LLM verification ({len(pending)} candidates)...")
+            pairs = [(m.input_address, m.address_label) for _, m in pending]
+            verdicts = await verifier.verify_batch_async(pairs)
+
+            upgraded = 0
+            for (idx, match), verdict in zip(pending, verdicts, strict=True):
+                if verdict:
+                    matches[idx] = match.model_copy(update={
+                        "similarity_score": 1.0,
+                        "llm_verified": True,
+                        "match_method": "TRIGRAM+LLM",
+                    })
+                    upgraded += 1
+            print(f"Pass 2 complete: {upgraded}/{len(pending)} upgraded to 1.0.")
+        elif pending:
+            logger.info("Skipping LLM verification — Ollama not available.")
+
+        for m in matches:
+            if m.match_method is None:
+                m.match_method = "TRIGRAM" if m.similarity_score > 0 else "FAILED"
+
+        geocoded_at = datetime.now(UTC).isoformat()
+        writeback_records: list[dict] = []
+        for row, match in zip(rows, matches, strict=True):
+            status = settings.supabase_status_completed if match.similarity_score > 0 else settings.supabase_status_failed
+            record = {
+                "id": row["id"],
+                "status": status,
+                "geocoded_at": geocoded_at,
+                **match.model_dump(),
+            }
+            if match.similarity_score == 0:
+                record["error_message"] = "No G-NAF match found"
+            writeback_records.append(record)
+
+        sb.writeback_results(writeback_records)
+
+        success = sum(1 for m in matches if m.similarity_score > 0)
+        verified = sum(1 for m in matches if m.llm_verified)
+        obs.log_completion({"total": len(addresses), "success": success, "failed": len(addresses) - success})
+
+        print(f"\n--- Summary: {success} matched, {len(addresses) - success} failed, {verified} LLM verified ---")
+        print("Results written back to Supabase.")
+
+        return {
+            "total": len(addresses),
+            "success": success,
+            "failed": len(addresses) - success,
+            "verified": verified,
+        }
+
+    except Exception as e:
+        logger.error("Supabase geocoding process failed: %s", e)
         raise
 
 

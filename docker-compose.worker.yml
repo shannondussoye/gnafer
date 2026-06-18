@@ -1,0 +1,71 @@
+# Docker Compose for the small-machine fast-geocoder worker.
+#
+# Usage:
+#   docker compose -f docker-compose.worker.yml up -d
+#
+# This starts PostgreSQL + the polling worker in one command.
+# The worker immediately begins geocoding and restarts automatically.
+# No Ollama / GPU required.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: gnafer-db
+    restart: always
+    mem_limit: 2G
+    cpus: 1.0
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-gnafer}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    container_name: gnafer-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: db
+    volumes:
+      - .:/app
+      - /app/.venv
+    depends_on:
+      db:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    # Auto-start polling when the container starts
+    command:
+      - uv
+      - run
+      - gnafer
+      - poll-listings
+      - --mode
+      - GEO
+      - --interval
+      - "60"
+      - --batch-size
+      - "100"
+      - --max-idle-time
+      - "600"
+
+volumes:
+  postgres_data:

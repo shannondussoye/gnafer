@@ -44,6 +44,27 @@ class Settings(BaseSettings):
     job_max_store_size: int = 1000
     max_batch_size: int = 10_000
 
+    supabase_url: str = ""
+    supabase_key: str = ""
+    supabase_service_role_key: str = ""
+    supabase_table: str = "addresses"
+    supabase_fetch_chunk: int = 500
+    supabase_upsert_chunk: int = 100
+    supabase_timeout: int = 30
+    supabase_batch_size: int = 500
+    supabase_read_page_size: int = 1000
+    supabase_max_retries: int = 3
+    supabase_retry_base_delay_ms: float = 500.0
+    supabase_status_pending: str = "pending"
+    supabase_status_processing: str = "processing"
+    supabase_status_completed: str = "completed"
+    supabase_status_failed: str = "failed"
+
+    @property
+    def supabase_auth_key(self) -> str:
+        """Return the service role key if set, otherwise fall back to the generic key."""
+        return self.supabase_service_role_key or self.supabase_key
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
